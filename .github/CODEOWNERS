@@ -1,0 +1,17 @@
+# CODEOWNERS file for repository access control
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owners - these users are requested for review when anyone opens a pull request
+* @Prajwal-M-K @P-Vishnupranav-Reddy @night-fury-lab @dhruva1311 @aadhyadarshan @Sivagamasundari
+
+# Specific file/folder ownership
+# Documentation
+docs/ @Prajwal-M-K @P-Vishnupranav-Reddy @night-fury-lab @dhruva1311 @aadhyadarshan @Sivagamasundari
+
+# Configuration files
+*.json @Prajwal-M-K @P-Vishnupranav-Reddy @night-fury-lab @dhruva1311 @aadhyadarshan @Sivagamasundari
+*.yml @Prajwal-M-K @P-Vishnupranav-Reddy @night-fury-lab @dhruva1311 @aadhyadarshan @Sivagamasundari
+*.yaml @Prajwal-M-K @P-Vishnupranav-Reddy @night-fury-lab @dhruva1311 @aadhyadarshan @Sivagamasundari
+
+# Student IDs for reference:
+# Prajwal-M-K, P-Vishnupranav-Reddy, night-fury-lab
