@@ -16,6 +16,12 @@
     "quotes": ["error", "single"],
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_|^since$|^limit$" }],
     "no-console": "off",
+    "no-irregular-whitespace": ["error", {
+      "skipStrings": true,
+      "skipComments": true,
+      "skipRegExps": true,
+      "skipTemplates": true
+    }],
     "space-before-function-paren": ["error", {
       "anonymous": "always",
       "named": "never",

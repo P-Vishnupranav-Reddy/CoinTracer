@@ -130,11 +130,13 @@ class ExchangeController {
       console.error('Disconnect exchange error:', error);
       res.status(500).json({ error: 'Failed to disconnect exchange', details: error.message });
     }
-  } /**
-   * =========================================================
-   * SYNC EXCHANGE (UPDATED)
-   * =========================================================
-   */
+  }
+
+  /**
+   * =========================================================
+   * SYNC EXCHANGE (UPDATED)
+   * =========================================================
+   */
 
   static async syncExchange(req, res) {
     try {

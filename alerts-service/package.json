@@ -1,0 +1,48 @@
+{
+  "name": "alerts-service",
+  "version": "1.0.0",
+  "description": "Custom alerts service for price targets and percentage changes",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint . --ext .js",
+    "lint:check": "eslint . --ext .js",
+    "lint:fix": "eslint . --ext .js --fix"
+  },
+  "dependencies": {
+    "@cointracer/shared": "file:../shared",
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.57.1",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-n": "^16.6.2",
+    "eslint-plugin-promise": "^6.1.1"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coveragePathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "testMatch": [
+      "/_tests_//*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "controllers//*.js",
+      "services//*.js",
+      "routes//*.js",
+      "!/node_modules/"
+    ]
+  }
+}
