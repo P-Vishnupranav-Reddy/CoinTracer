@@ -39,6 +39,11 @@ export default defineConfig({
         target: 'http://localhost:3004',
         changeOrigin: true,
       },
+      // Alerts service (port 5002)
+      '/api/v1/alerts': {
+        target: 'http://localhost:5002',
+        changeOrigin: true,
+      },
     },
   },
 })

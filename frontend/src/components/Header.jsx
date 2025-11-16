@@ -41,8 +41,9 @@ export default function Header() {
               <Link to="/favorites" className="link" style={{ padding: '8px 12px' }}>Favorites</Link>
               <Link to="/transactions" className="link" style={{ padding: '8px 12px' }}>Transactions</Link>
               <Link to="/exchanges" className="link" style={{ padding: '8px 12px' }}>Exchanges</Link>
-              <Link to="/profile" className="link" style={{ padding: '8px 12px' }}>Profile</Link>
+              <Link to="/alerts" className="link" style={{padding:'8px 12px'}}>Alerts</Link>
               <Link to="/news" className="link" style={{padding:'8px 12px'}}>News</Link>
+              <Link to="/profile" className="link" style={{ padding: '8px 12px' }}>Profile</Link>
               <button
                 className="btn btn-ghost"
                 onClick={() => {

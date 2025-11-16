@@ -25,7 +25,8 @@ const services = [
   { name: 'User Service', path: 'user-service', type: 'node' },
   { name: 'Market Data Service', path: 'market-data-service', type: 'node' },
   { name: 'Exchange Connections Service', path: 'exchange-connections-service', type: 'node' },
-  { name: 'Personalization Service', path: 'personalization-service', type: 'node' }
+  { name: 'Personalization Service', path: 'personalization-service', type: 'node' },
+  { name: 'Alerts Service', path: 'alerts-service', type: 'node' }
 ];
 
 // Scoring configuration with -0.1 per error and -0.5 per warning

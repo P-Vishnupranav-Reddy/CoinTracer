@@ -8,7 +8,8 @@
     "user-service",
     "personalization-service",
     "market-data-service",
-    "exchange-connections-service"
+    "exchange-connections-service",
+    "alerts-service"
   ],
   "scripts": {
     "setup": "npm install",
@@ -20,12 +21,12 @@
     "lint": "node scripts/lint-all-services.js",
     "lint:fix": "node scripts/lint-all-services.js --fix",
     "lint:score": "node scripts/lint-all-services.js --score",
-    "dev": "dotenv -e .env -- concurrently -n front,user,personal,market,exchange -c blue,magenta,cyan,yellow,green \"npm:dev:frontend\" \"npm:dev:user-service\" \"npm:dev:personalization-service\" \"npm:dev:market-data-service\" \"npm:dev:exchange-connections-service\"",
-    "dev:frontend": "npm run dev -w frontend",
+    "dev": "dotenv -e .env -- concurrently -n front,user,personal,market,exchange,alerts -c blue,magenta,cyan,yellow,green,red \"npm:dev:frontend\" \"npm:dev:user-service\" \"npm:dev:personalization-service\" \"npm:dev:market-data-service\" \"npm:dev:exchange-connections-service\" \"npm:dev:alerts-service\"",    "dev:frontend": "npm run dev -w frontend",
     "dev:user-service": "npm run start -w user-service",
     "dev:personalization-service": "npm run start -w personalization-service",
     "dev:market-data-service": "npm run dev -w market-data-service",
-    "dev:exchange-connections-service": "npm run dev -w exchange-connections-service"
+    "dev:exchange-connections-service": "npm run dev -w exchange-connections-service",
+    "dev:alerts-service": "npm run dev -w alerts-service"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

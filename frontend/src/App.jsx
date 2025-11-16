@@ -18,6 +18,7 @@ import { Transactions } from './pages/Transactions';
 import Profile from './pages/Profile';
 import { NewsPage } from './pages/NewsPage';
 import AssetDetails from './pages/AssetDetails';
+import { AlertsPage } from './pages/AlertsPage';
 
 // 4. (Helper) Auth Layout
 // This is Dev A's original split-screen layout.
@@ -119,6 +120,7 @@ export default function App() {
           <Route path="/news" element={<NewsPage/>}/>
           <Route path="/exchanges" element={<ExchangeConnections />} />
           <Route path="/transactions" element={<Transactions />} />
+          <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
 
