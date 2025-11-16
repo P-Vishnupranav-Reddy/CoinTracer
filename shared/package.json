@@ -1,0 +1,13 @@
+{
+  "name": "@cointracer/shared",
+  "version": "1.0.0",
+  "description": "Shared utilities for CoinTracer microservices",
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.5"
+  }
+}

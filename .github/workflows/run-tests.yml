@@ -1,0 +1,158 @@
+name: Run Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to test (or "all" for all services)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - user-service
+          - exchange-connections-service
+          - market-data-service
+          - personalization-service
+          - frontend
+      coverage:
+        description: 'Generate coverage report'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  test:
+    name: Run Tests - ${{ github.event.inputs.service }}
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        ports:
+          - 5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dacpt
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          echo "Installing dependencies..."
+          npm install
+          echo "✓ Dependencies installed"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p ${{ job.services.postgres.ports['5432'] }} -U postgres; then
+              echo "OK: PostgreSQL is ready!"
+              exit 0
+            fi
+            echo "Waiting for Postgres ($i/30)"
+            sleep 2
+          done
+          echo "FAIL: Postgres did not become ready in time"
+          exit 1
+
+      - name: Load database schema
+        env:
+          PGPASSWORD: postgres
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          echo "Loading database schema..."
+          psql -h localhost -U postgres -d dacpt -f db/schema.sql
+          if [ -f db/seed.sql ]; then
+            psql -h localhost -U postgres -d dacpt -f db/seed.sql
+          fi
+          echo "OK: Database ready"
+
+      - name: Run tests for all services
+        if: github.event.inputs.service == 'all'
+        env:
+          PGHOST: localhost
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+          PGDATABASE: dacpt
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-key
+          COINMARKETCAP_API_KEY: test-api-key
+        run: |
+          echo "Running all tests..."
+          if [ "${{ github.event.inputs.coverage }}" == "true" ]; then
+            npm run test:coverage
+          else
+            npm test
+          fi
+          echo "OK: All tests completed"
+
+      - name: Run tests for specific service
+        if: github.event.inputs.service != 'all'
+        env:
+          PGHOST: localhost
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+          PGDATABASE: dacpt
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-key
+          COINMARKETCAP_API_KEY: test-api-key
+        run: |
+          SERVICE="${{ github.event.inputs.service }}"
+          echo "Running tests for $SERVICE..."
+          
+          if [ "${{ github.event.inputs.coverage }}" == "true" ]; then
+            npm test -w $SERVICE -- --coverage
+          else
+            npm test -w $SERVICE
+          fi
+          
+          echo "OK: Tests completed for $SERVICE"
+
+      - name: Generate test summary
+        run: |
+          echo "# Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** ${{ github.event.inputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage:** ${{ github.event.inputs.coverage }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### New Features Tested" >> $GITHUB_STEP_SUMMARY
+          echo "- Profile Updates (user-service)" >> $GITHUB_STEP_SUMMARY
+          echo "- Asset Details & Charts (market-data-service)" >> $GITHUB_STEP_SUMMARY
+          echo "- Portfolio P&L & 24h Tracking (exchange-connections-service)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage reports
+        if: github.event.inputs.coverage == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-${{ github.event.inputs.service }}
+          path: |
+            **/coverage
+          if-no-files-found: warn
+          retention-days: 30

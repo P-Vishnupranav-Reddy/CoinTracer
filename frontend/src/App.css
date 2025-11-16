@@ -1,0 +1,53 @@
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Utility classes */
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.row { 
+  display: flex; 
+  gap: 12px; 
+  align-items: center;
+}
+
+.space-between { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center;
+}
+
+.small { 
+  font-size: 13px; 
+  color: var(--text-secondary);
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.15);
+}
