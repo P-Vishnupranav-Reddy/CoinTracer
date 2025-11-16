@@ -15,9 +15,17 @@ jest.mock('../services/portfolio.service');
 describe('Portfolio Controller Tests', () => {
   let mockReq;
   let mockRes;
+  let consoleErrorSpy;
+  let consoleLogSpy;
+  let consoleWarnSpy;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    
+    // Mock console methods
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     mockReq = {
       body: {},
@@ -29,6 +37,13 @@ describe('Portfolio Controller Tests', () => {
       status: jest.fn().mockReturnThis(),
       json: jest.fn().mockReturnThis()
     };
+  });
+
+  afterEach(() => {
+    // Restore console methods
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
   });
 
   describe('createPortfolio', () => {

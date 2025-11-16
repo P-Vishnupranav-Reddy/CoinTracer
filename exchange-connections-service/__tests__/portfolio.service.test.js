@@ -7,8 +7,21 @@ jest.mock('../models/holding.model');
 jest.mock('axios');
 
 describe('Portfolio Service Tests', () => {
+  let consoleErrorSpy;
+  let consoleLogSpy;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    
+    // Mock console methods
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // Restore console methods
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
   });
 
   describe('recalculateHoldings', () => {
@@ -54,9 +67,9 @@ describe('Portfolio Service Tests', () => {
       const prices = await PortfolioService.fetchLivePrices(assets, currency);
 
       expect(prices).toEqual({
-        BTC: 50000,
-        ETH: 3500,
-        BNB: 500
+        BTC: { price: 50000, change24h: 0 },
+        ETH: { price: 3500, change24h: 0 },
+        BNB: { price: 500, change24h: 0 }
       });
     });
 
@@ -77,7 +90,8 @@ describe('Portfolio Service Tests', () => {
 
       const prices = await PortfolioService.fetchLivePrices(assets, currency);
 
-      expect(prices).toHaveProperty('BTC', 50000);
+      expect(prices).toHaveProperty('BTC');
+      expect(prices.BTC).toEqual({ price: 50000, change24h: 0 });
       expect(prices).not.toHaveProperty('UNKNOWN');
     });
 
@@ -143,11 +157,11 @@ describe('Portfolio Service Tests', () => {
       const prices = await PortfolioService.fetchLivePrices(assets, 'usd');
 
       expect(prices).toEqual({
-        BTC: 50000,
-        ETH: 3500,
-        USDT: 1,
-        BNB: 500,
-        SOL: 100
+        BTC: { price: 50000, change24h: 0 },
+        ETH: { price: 3500, change24h: 0 },
+        USDT: { price: 1, change24h: 0 },
+        BNB: { price: 500, change24h: 0 },
+        SOL: { price: 100, change24h: 0 }
       });
     });
   });

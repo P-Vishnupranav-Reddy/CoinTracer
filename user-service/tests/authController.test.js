@@ -15,10 +15,16 @@ process.env.JWT_SECRET = 'test-secret-key';
 describe('Auth Controller Unit Tests', () => {
   let mockReq;
   let mockRes;
+  let consoleErrorSpy;
+  let consoleLogSpy;
 
   beforeEach(() => {
     // Reset mocks before each test
     jest.clearAllMocks();
+
+    // Mock console methods to prevent pollution in test output
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     // Setup mock request and response objects
     mockReq = {
@@ -29,6 +35,12 @@ describe('Auth Controller Unit Tests', () => {
       status: jest.fn().mockReturnThis(),
       json: jest.fn().mockReturnThis()
     };
+  });
+
+  afterEach(() => {
+    // Restore console methods
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
   });
 
   describe('register', () => {
@@ -526,7 +538,7 @@ describe('Auth Controller Unit Tests', () => {
         user: mockUser
       });
       expect(db.query).toHaveBeenCalledWith(
-        'SELECT id, email, name, created_at FROM public.users WHERE id = $1',
+        'SELECT id, email, name, birthday, phone_number, country, created_at FROM public.users WHERE id = $1',
         ['user-uuid-123']
       );
     });

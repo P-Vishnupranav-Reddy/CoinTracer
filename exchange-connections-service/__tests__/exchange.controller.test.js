@@ -13,9 +13,15 @@ jest.mock('../services/portfolio.service');
 describe('Exchange Controller Tests', () => {
   let mockReq;
   let mockRes;
+  let consoleErrorSpy;
+  let consoleLogSpy;
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    // Mock console methods
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     mockReq = {
       body: {},
@@ -27,6 +33,12 @@ describe('Exchange Controller Tests', () => {
       status: jest.fn().mockReturnThis(),
       json: jest.fn().mockReturnThis()
     };
+  });
+
+  afterEach(() => {
+    // Restore console methods
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
   });
 
   describe('connectExchange', () => {

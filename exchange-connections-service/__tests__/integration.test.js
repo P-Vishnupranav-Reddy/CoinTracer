@@ -49,8 +49,26 @@ app.use((err, req, res, next) => {
 });
 
 describe('Exchange Connections Service - Integration Tests', () => {
+  let consoleErrorSpy;
+  let consoleLogSpy;
+  let consoleWarnSpy;
+
+  beforeAll(() => {
+    // Mock console methods
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterAll(() => {
+    // Restore console methods
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
   });
 
   describe('POST /api/exchanges/connections', () => {

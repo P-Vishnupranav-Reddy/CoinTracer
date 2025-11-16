@@ -117,12 +117,12 @@ class PortfolioService {
         pnl_color: unrealizedPnL >= 0 ? 'success' : 'error',
         last_updated: holding.last_updated
       };
-    });
+    }).filter(h => h.total_quantity > 0); // Filter out zero-quantity holdings
 
     return {
       holdings: enrichedHoldings,
       summary: {
-        totalValue: totalValue.toFixed(2),
+        totalCurrentValue: totalValue.toFixed(2),
         totalInvested: totalInvested.toFixed(2),
         totalUnrealizedPnL: totalUnrealizedPnL.toFixed(2),
         totalPnLPercentage:
@@ -130,7 +130,7 @@ class PortfolioService {
             ? ((totalUnrealizedPnL / totalInvested) * 100).toFixed(2)
             : '0.00',
         pnlColor: totalUnrealizedPnL >= 0 ? 'success' : 'error',
-        assetCount: holdings.length,
+        assetCount: enrichedHoldings.length,
         pricesLive: Object.keys(currentPrices).length > 0
       }
     };

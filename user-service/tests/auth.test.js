@@ -20,6 +20,20 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Mock console methods
+let consoleErrorSpy;
+let consoleLogSpy;
+
+beforeAll(() => {
+  consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  consoleErrorSpy.mockRestore();
+  consoleLogSpy.mockRestore();
+});
+
 // Mock JWT_SECRET
 process.env.JWT_SECRET = 'test-secret-key';
 

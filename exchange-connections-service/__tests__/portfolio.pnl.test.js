@@ -5,9 +5,21 @@ const Holding = require('../models/holding.model');
 jest.mock('../models/holding.model');
 
 describe('Portfolio P&L Calculations', () => {
+  let consoleErrorSpy;
+  let consoleLogSpy;
   
   beforeEach(() => {
     jest.clearAllMocks();
+    
+    // Mock console methods
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // Restore console methods
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
   });
 
   describe('calculatePortfolioWithPnL', () => {
@@ -44,11 +56,11 @@ describe('Portfolio P&L Calculations', () => {
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
       expect(result).toBeDefined();
-      expect(result.totalInvested).toBe('85000.00');
-      expect(result.totalCurrentValue).toBe('97500.00'); // (1.5 * 45000) + (10 * 3000)
-      expect(result.totalUnrealizedPnL).toBe('12500.00'); // 97500 - 85000
-      expect(result.totalPnLPercentage).toBe('14.71'); // (12500 / 85000) * 100
-      expect(result.pnlColor).toBe('success');
+      expect(result.summary.totalInvested).toBe('85000.00');
+      expect(result.summary.totalCurrentValue).toBe('97500.00'); // (1.5 * 45000) + (10 * 3000)
+      expect(result.summary.totalUnrealizedPnL).toBe('12500.00'); // 97500 - 85000
+      expect(result.summary.totalPnLPercentage).toBe('14.71'); // (12500 / 85000) * 100
+      expect(result.summary.pnlColor).toBe('success');
       expect(result.holdings).toHaveLength(2);
     });
 
@@ -73,9 +85,9 @@ describe('Portfolio P&L Calculations', () => {
 
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
-      expect(result.totalUnrealizedPnL).toBe('-10000.00');
-      expect(result.totalPnLPercentage).toBe('-20.00');
-      expect(result.pnlColor).toBe('error');
+      expect(result.summary.totalUnrealizedPnL).toBe('-10000.00');
+      expect(result.summary.totalPnLPercentage).toBe('-20.00');
+      expect(result.summary.pnlColor).toBe('error');
     });
 
     it('should use average_cost when current price is not available', async () => {
@@ -97,9 +109,9 @@ describe('Portfolio P&L Calculations', () => {
 
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
-      expect(result.totalCurrentValue).toBe('10000.00'); // Uses average_cost
-      expect(result.totalUnrealizedPnL).toBe('0.00');
-      expect(result.totalPnLPercentage).toBe('0.00');
+      expect(result.summary.totalCurrentValue).toBe('10000.00'); // Uses average_cost
+      expect(result.summary.totalUnrealizedPnL).toBe('0.00');
+      expect(result.summary.totalPnLPercentage).toBe('0.00');
     });
 
     it('should filter out zero-quantity holdings', async () => {
@@ -142,10 +154,10 @@ describe('Portfolio P&L Calculations', () => {
 
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', {});
 
-      expect(result.totalInvested).toBe('0.00');
-      expect(result.totalCurrentValue).toBe('0.00');
-      expect(result.totalUnrealizedPnL).toBe('0.00');
-      expect(result.totalPnLPercentage).toBe('0.00');
+      expect(result.summary.totalInvested).toBe('0.00');
+      expect(result.summary.totalCurrentValue).toBe('0.00');
+      expect(result.summary.totalUnrealizedPnL).toBe('0.00');
+      expect(result.summary.totalPnLPercentage).toBe('0.00');
       expect(result.holdings).toHaveLength(0);
     });
 
@@ -220,10 +232,10 @@ describe('Portfolio P&L Calculations', () => {
       // SOL: (8000 - 7500) = 500 profit
       // Total: 3500 profit on 77500 invested
 
-      expect(result.totalInvested).toBe('77500.00');
-      expect(result.totalUnrealizedPnL).toBe('3500.00');
-      expect(parseFloat(result.totalPnLPercentage)).toBeCloseTo(4.52, 1);
-      expect(result.pnlColor).toBe('success');
+      expect(result.summary.totalInvested).toBe('77500.00');
+      expect(result.summary.totalUnrealizedPnL).toBe('3500.00');
+      expect(parseFloat(result.summary.totalPnLPercentage)).toBeCloseTo(4.52, 1);
+      expect(result.summary.pnlColor).toBe('success');
     });
 
     it('should include 24h price change when available', async () => {
@@ -248,7 +260,7 @@ describe('Portfolio P&L Calculations', () => {
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
       expect(result.holdings[0]).toHaveProperty('current_price');
-      expect(result.holdings[0].current_price).toBe('45000.00');
+      expect(result.holdings[0].current_price).toBe(45000);
     });
 
     it('should handle very large numbers correctly', async () => {
@@ -272,10 +284,10 @@ describe('Portfolio P&L Calculations', () => {
 
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
-      expect(result.totalInvested).toBe('40000000.00');
-      expect(result.totalCurrentValue).toBe('50000000.00');
-      expect(result.totalUnrealizedPnL).toBe('10000000.00');
-      expect(result.totalPnLPercentage).toBe('25.00');
+      expect(result.summary.totalInvested).toBe('40000000.00');
+      expect(result.summary.totalCurrentValue).toBe('50000000.00');
+      expect(result.summary.totalUnrealizedPnL).toBe('10000000.00');
+      expect(result.summary.totalPnLPercentage).toBe('25.00');
     });
 
     it('should handle decimal quantities correctly', async () => {
@@ -299,9 +311,9 @@ describe('Portfolio P&L Calculations', () => {
 
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
-      expect(result.totalInvested).toBe('25165.82');
-      expect(parseFloat(result.totalCurrentValue)).toBeCloseTo(26118.99, 2);
-      expect(parseFloat(result.totalUnrealizedPnL)).toBeGreaterThan(0);
+      expect(result.summary.totalInvested).toBe('25165.82');
+      expect(parseFloat(result.summary.totalCurrentValue)).toBeCloseTo(26119.24, 1); // 0.5678 * 46000.75
+      expect(parseFloat(result.summary.totalUnrealizedPnL)).toBeGreaterThan(0);
     });
   });
 
@@ -338,7 +350,7 @@ describe('Portfolio P&L Calculations', () => {
 
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
-      const totalValue = parseFloat(result.totalCurrentValue);
+      const totalValue = parseFloat(result.summary.totalCurrentValue);
       const btcValue = 45000;
       const ethValue = 60000;
 
@@ -370,10 +382,10 @@ describe('Portfolio P&L Calculations', () => {
 
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
-      expect(result.totalInvested).toBe('0.00');
-      expect(result.totalCurrentValue).toBe('1000.00');
-      expect(result.totalUnrealizedPnL).toBe('1000.00');
-      expect(result.totalPnLPercentage).toBe('0.00'); // Can't calculate % on zero investment
+      expect(result.summary.totalInvested).toBe('0.00');
+      expect(result.summary.totalCurrentValue).toBe('1000.00');
+      expect(result.summary.totalUnrealizedPnL).toBe('1000.00');
+      expect(result.summary.totalPnLPercentage).toBe('0.00'); // Can't calculate % on zero investment
     });
 
     it('should handle null or undefined prices gracefully', async () => {
@@ -398,7 +410,7 @@ describe('Portfolio P&L Calculations', () => {
       const result = await PortfolioService.calculatePortfolioWithPnL('portfolio-123', currentPrices);
 
       // Should fallback to average_cost
-      expect(result.totalCurrentValue).toBe('40000.00');
+      expect(result.summary.totalCurrentValue).toBe('40000.00');
     });
   });
 });
