@@ -36,13 +36,13 @@
       "/node_modules/"
     ],
     "testMatch": [
-      "/_tests_//*.test.js"
+      "**/__tests__/**/*.test.js"
     ],
     "collectCoverageFrom": [
-      "controllers//*.js",
-      "services//*.js",
-      "routes//*.js",
-      "!/node_modules/"
+      "controllers/**/*.js",
+      "services/**/*.js",
+      "routes/**/*.js",
+      "!**/node_modules/**"
     ]
   }
 }
