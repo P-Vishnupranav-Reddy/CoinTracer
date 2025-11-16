@@ -160,42 +160,11 @@ jobs:
           echo "Errors: ${{ steps.parse.outputs.errors }}, Warnings: ${{ steps.parse.outputs.warnings }}"
           exit 1
 
-  service-ci:
-    name: ${{ matrix.service }}
+  user-service:
+    name: user-service
     needs: lint-all-services
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - service: user-service
-            workspace: user-service
-            needs_db: true
-            load_schema: true
-            test: npm test -w user-service -- --coverage --passWithNoTests
-            collect_coverage: true
-            test_files: "tests/**/*.test.js"
-          - service: exchange-connections-service
-            workspace: exchange-connections-service
-            needs_db: true
-            load_schema: true
-            test: npm test -w exchange-connections-service -- --coverage --passWithNoTests
-            collect_coverage: true
-            test_files: "__tests__/**/*.test.js"
-          - service: personalization-service
-            workspace: personalization-service
-            needs_db: true
-            load_schema: true
-            test: npm test -w personalization-service -- --passWithNoTests
-            collect_coverage: false
-            test_files: "tests/**/*.test.js"
-          - service: market-data-service
-            workspace: market-data-service
-            needs_db: false
-            load_schema: false
-            test: npm test -w market-data-service -- --coverage --passWithNoTests
-            collect_coverage: true
-            test_files: "__tests__/**/*.test.js"
+    
     services:
       postgres:
         image: postgres:14
@@ -221,20 +190,18 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install workspace dependencies
+      - name: Install dependencies
         run: |
           echo "Installing dependencies..."
           npm install
           echo "Dependencies installed successfully"
 
       - name: Install PostgreSQL client
-        if: ${{ matrix.needs_db }}
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
       - name: Wait for database
-        if: ${{ matrix.needs_db }}
         env:
           PGPASSWORD: postgres
         run: |
@@ -250,7 +217,6 @@ jobs:
           exit 1
 
       - name: Prepare database schema
-        if: ${{ matrix.load_schema }}
         env:
           PGPASSWORD: postgres
           PGPORT: ${{ job.services.postgres.ports['5432'] }}
@@ -260,31 +226,10 @@ jobs:
           if [ -f db/seed.sql ]; then
             echo "Loading seed data..."
             psql -h localhost -U postgres -d dacpt -f db/seed.sql
-          else
-            echo "No seed file found, skipping seed data"
           fi
           echo "Database schema loaded successfully"
 
-      - name: Lint workspace
-        continue-on-error: true
-        run: |
-          echo "Running linter for ${{ matrix.service }}..."
-          npm run lint -w ${{ matrix.workspace }} --if-present || echo "Linting issues found"
-
-      - name: Verify test files exist
-        if: ${{ matrix.test != '' }}
-        working-directory: ${{ matrix.workspace }}
-        run: |
-          echo "Checking for test files in ${{ matrix.workspace }}..."
-          if [ -d "tests" ] || [ -d "__tests__" ]; then
-            echo "OK: Test directory found"
-            find tests __tests__ -name "*.test.js" 2>/dev/null | head -10 || echo "Test files will be discovered by Jest"
-          else
-            echo "WARN: No test directory found - tests may be in other locations"
-          fi
-
       - name: Run tests
-        if: ${{ matrix.test != '' }}
         env:
           PGHOST: localhost
           PGPORT: ${{ job.services.postgres.ports['5432'] }}
@@ -293,94 +238,300 @@ jobs:
           PGPASSWORD: postgres
           NODE_ENV: test
           JWT_SECRET: test-jwt-secret-key
-          COINMARKETCAP_API_KEY: test-api-key
-          BINANCE_API_KEY: test-api-key
-          BINANCE_API_SECRET: test-api-secret
         run: |
-          echo "Running tests for ${{ matrix.service }}..."
-          ${{ matrix.test }}
-          echo "OK: Tests completed for ${{ matrix.service }}"
+          echo "Running tests for user-service..."
+          npm test -w user-service -- --coverage --passWithNoTests
+          echo "OK: Tests completed for user-service"
 
       - name: Generate test summary
-        if: ${{ matrix.test != '' }}
         continue-on-error: true
-        working-directory: ${{ matrix.workspace }}
+        working-directory: user-service
         run: |
-          echo "### Test Results: ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results: user-service" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Count test files
-          TEST_FILES=$(find tests __tests__ -name "*.test.js" 2>/dev/null | wc -l || echo "0")
+          TEST_FILES=$(find tests -name "*.test.js" 2>/dev/null | wc -l || echo "0")
           echo "- **Test Files**: $TEST_FILES" >> $GITHUB_STEP_SUMMARY
           
-          # List test files
           if [ "$TEST_FILES" -gt 0 ]; then
             echo "- **Test Files Executed**:" >> $GITHUB_STEP_SUMMARY
-            find tests __tests__ -name "*.test.js" 2>/dev/null | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY || true
+            find tests -name "*.test.js" 2>/dev/null | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY || true
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Append coverage summary
-        if: ${{ matrix.collect_coverage }}
-        continue-on-error: true
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const summaryPath = path.join('${{ matrix.workspace }}', 'coverage', 'coverage-summary.json');
-
-          if (!fs.existsSync(summaryPath)) {
-            console.log(`No coverage summary found for ${{ matrix.service }}`);
-            const lines = [
-              `### Coverage: ${{ matrix.service }}`,
-              '',
-              'No coverage data available (tests may have passed without coverage collection)',
-              ''
-            ];
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
-            process.exit(0);
-          }
-
-          try {
-            const metrics = JSON.parse(fs.readFileSync(summaryPath, 'utf8')).total;
-            const fmt = (key) => {
-              const pct = metrics[key].pct ?? 0;
-              const badge = pct >= 80 ? '[GOOD]' : pct >= 60 ? '[WARN]' : '[FAIL]';
-              return `${badge} ${pct.toFixed(2)}%`;
-            };
-            
-            const lines = [
-              `### Coverage: ${{ matrix.service }}`,
-              '',
-              '| Metric | Coverage | Status |',
-              '| --- | --- | --- |',
-              `| Statements | ${fmt('statements')} | ${(metrics.statements.pct >= 80) ? 'Good' : 'Needs Improvement'} |`,
-              `| Branches | ${fmt('branches')} | ${(metrics.branches.pct >= 80) ? 'Good' : 'Needs Improvement'} |`,
-              `| Functions | ${fmt('functions')} | ${(metrics.functions.pct >= 80) ? 'Good' : 'Needs Improvement'} |`,
-              `| Lines | ${fmt('lines')} | ${(metrics.lines.pct >= 80) ? 'Good' : 'Needs Improvement'} |`,
-              ''
-            ];
-
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
-            console.log(`✓ Coverage summary added for ${{ matrix.service }}`);
-          } catch (error) {
-            console.error(`Error processing coverage: ${error.message}`);
-            process.exit(0);
-          }
-          NODE
-
-      - name: Upload artifacts
+      - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.service }}-reports
-          path: |
-            ${{ matrix.workspace }}/coverage
-            ${{ matrix.workspace }}/eslint-report.json
+          name: user-service-coverage
+          path: user-service/coverage
           if-no-files-found: warn
+
+  exchange-connections-service:
+    name: exchange-connections-service
+    needs: lint-all-services
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        ports:
+          - 5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dacpt
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          echo "Installing dependencies..."
+          npm install
+          echo "Dependencies installed successfully"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p ${{ job.services.postgres.ports['5432'] }} -U postgres; then
+              echo "PostgreSQL is ready!"
+              exit 0
+            fi
+            echo "Waiting for Postgres ($i/30)"
+            sleep 2
+          done
+          echo "Postgres did not become ready in time"
+          exit 1
+
+      - name: Prepare database schema
+        env:
+          PGPASSWORD: postgres
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          echo "Loading database schema..."
+          psql -h localhost -U postgres -d dacpt -f db/schema.sql
+          if [ -f db/seed.sql ]; then
+            echo "Loading seed data..."
+            psql -h localhost -U postgres -d dacpt -f db/seed.sql
+          fi
+          echo "Database schema loaded successfully"
+
+      - name: Run tests
+        env:
+          PGHOST: localhost
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+          PGDATABASE: dacpt
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-key
+          BINANCE_API_KEY: test-api-key
+          BINANCE_API_SECRET: test-api-secret
+        run: |
+          echo "Running tests for exchange-connections-service..."
+          npm test -w exchange-connections-service -- --coverage --passWithNoTests
+          echo "OK: Tests completed for exchange-connections-service"
+
+      - name: Generate test summary
+        continue-on-error: true
+        working-directory: exchange-connections-service
+        run: |
+          echo "### Test Results: exchange-connections-service" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          TEST_FILES=$(find __tests__ -name "*.test.js" 2>/dev/null | wc -l || echo "0")
+          echo "- **Test Files**: $TEST_FILES" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$TEST_FILES" -gt 0 ]; then
+            echo "- **Test Files Executed**:" >> $GITHUB_STEP_SUMMARY
+            find __tests__ -name "*.test.js" 2>/dev/null | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY || true
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: exchange-connections-service-coverage
+          path: exchange-connections-service/coverage
+          if-no-files-found: warn
+
+  market-data-service:
+    name: market-data-service
+    needs: lint-all-services
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          echo "Installing dependencies..."
+          npm install
+          echo "Dependencies installed successfully"
+
+      - name: Run tests
+        env:
+          NODE_ENV: test
+          COINMARKETCAP_API_KEY: test-api-key
+          BINANCE_API_KEY: test-api-key
+        run: |
+          echo "Running tests for market-data-service..."
+          npm test -w market-data-service -- --coverage --passWithNoTests
+          echo "OK: Tests completed for market-data-service"
+
+      - name: Generate test summary
+        continue-on-error: true
+        working-directory: market-data-service
+        run: |
+          echo "### Test Results: market-data-service" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          TEST_FILES=$(find __tests__ -name "*.test.js" 2>/dev/null | wc -l || echo "0")
+          echo "- **Test Files**: $TEST_FILES" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$TEST_FILES" -gt 0 ]; then
+            echo "- **Test Files Executed**:" >> $GITHUB_STEP_SUMMARY
+            find __tests__ -name "*.test.js" 2>/dev/null | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY || true
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-data-service-coverage
+          path: market-data-service/coverage
+          if-no-files-found: warn
+
+  personalization-service:
+    name: personalization-service
+    needs: lint-all-services
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        ports:
+          - 5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dacpt
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          echo "Installing dependencies..."
+          npm install
+          echo "Dependencies installed successfully"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p ${{ job.services.postgres.ports['5432'] }} -U postgres; then
+              echo "PostgreSQL is ready!"
+              exit 0
+            fi
+            echo "Waiting for Postgres ($i/30)"
+            sleep 2
+          done
+          echo "Postgres did not become ready in time"
+          exit 1
+
+      - name: Prepare database schema
+        env:
+          PGPASSWORD: postgres
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          echo "Loading database schema..."
+          psql -h localhost -U postgres -d dacpt -f db/schema.sql
+          if [ -f db/seed.sql ]; then
+            echo "Loading seed data..."
+            psql -h localhost -U postgres -d dacpt -f db/seed.sql
+          fi
+          echo "Database schema loaded successfully"
+
+      - name: Run tests
+        env:
+          PGHOST: localhost
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+          PGDATABASE: dacpt
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-key
+        run: |
+          echo "Running tests for personalization-service..."
+          npm test -w personalization-service -- --passWithNoTests
+          echo "OK: Tests completed for personalization-service"
+
+      - name: Generate test summary
+        continue-on-error: true
+        working-directory: personalization-service
+        run: |
+          echo "### Test Results: personalization-service" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          TEST_FILES=$(find tests -name "*.test.js" 2>/dev/null | wc -l || echo "0")
+          echo "- **Test Files**: $TEST_FILES" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$TEST_FILES" -gt 0 ]; then
+            echo "- **Test Files Executed**:" >> $GITHUB_STEP_SUMMARY
+            find tests -name "*.test.js" 2>/dev/null | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY || true
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
 
   frontend:
     name: frontend
+    needs: lint-all-services
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -412,59 +563,28 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Append frontend coverage
+      - name: Generate test summary
         working-directory: frontend
         continue-on-error: true
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const summaryPath = path.join(process.cwd(), 'coverage', 'coverage-summary.json');
-
-          if (!fs.existsSync(summaryPath)) {
-            console.log('No frontend coverage report found.');
-            const lines = [
-              '### Coverage: frontend',
-              '',
-              'No coverage data available',
-              ''
-            ];
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
-            process.exit(0);
-          }
-
-          try {
-            const metrics = JSON.parse(fs.readFileSync(summaryPath, 'utf8')).total;
-            const fmt = (key) => ((metrics[key].pct ?? 0).toFixed(2) + '%');
-            const lines = [
-              '### Coverage: frontend',
-              '',
-              '| Statements | Branches | Functions | Lines |',
-              '| --- | --- | --- | --- |',
-              `| ${fmt('statements')} | ${fmt('branches')} | ${fmt('functions')} | ${fmt('lines')} |`,
-              ''
-            ];
-
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
-            console.log('Frontend coverage summary added');
-          } catch (error) {
-            console.error(`Error processing coverage: ${error.message}`);
-            process.exit(0);
-          }
-          NODE
+          echo "### Test Results: frontend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build**: Success" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload frontend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-reports
-          path: frontend/coverage
+          name: frontend-build
+          path: frontend/dist
           if-no-files-found: warn
 
   test-summary:
     name: Test & Coverage Summary
     runs-on: ubuntu-latest
-    needs: [service-ci, frontend]
+    needs: [user-service, exchange-connections-service, market-data-service, personalization-service, frontend]
     if: always()
+    
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -479,10 +599,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| user-service | ${{ needs.service-ci.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| exchange-connections-service | ${{ needs.service-ci.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| market-data-service | ${{ needs.service-ci.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| personalization-service | ${{ needs.service-ci.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| user-service | ${{ needs.user-service.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| exchange-connections-service | ${{ needs.exchange-connections-service.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| market-data-service | ${{ needs.market-data-service.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| personalization-service | ${{ needs.personalization-service.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| frontend | ${{ needs.frontend.result == 'success' && 'PASSED' || 'FAILED' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
@@ -502,7 +622,10 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const serviceStatus = '${{ needs.service-ci.result }}' === 'success' ? 'PASSED' : 'FAILED';
+            const userServiceStatus = '${{ needs.user-service.result }}' === 'success' ? 'PASSED' : 'FAILED';
+            const exchangeStatus = '${{ needs.exchange-connections-service.result }}' === 'success' ? 'PASSED' : 'FAILED';
+            const marketStatus = '${{ needs.market-data-service.result }}' === 'success' ? 'PASSED' : 'FAILED';
+            const personalStatus = '${{ needs.personalization-service.result }}' === 'success' ? 'PASSED' : 'FAILED';
             const frontendStatus = '${{ needs.frontend.result }}' === 'success' ? 'PASSED' : 'FAILED';
             
             const comment = `## Test Summary
@@ -511,10 +634,10 @@ jobs:
             
             | Service | Status |
             |---------|--------|
-            | user-service | ${serviceStatus} |
-            | exchange-connections-service | ${serviceStatus} |
-            | market-data-service | ${serviceStatus} |
-            | personalization-service | ${serviceStatus} |
+            | user-service | ${userServiceStatus} |
+            | exchange-connections-service | ${exchangeStatus} |
+            | market-data-service | ${marketStatus} |
+            | personalization-service | ${personalStatus} |
             | frontend | ${frontendStatus} |
             
             ### New Features Tested
@@ -541,10 +664,26 @@ jobs:
               body: comment
             });
 
-  security:
+      - name: Check if all tests passed
+        run: |
+          if [[ "${{ needs.user-service.result }}" == "success" && \
+                "${{ needs.exchange-connections-service.result }}" == "success" && \
+                "${{ needs.market-data-service.result }}" == "success" && \
+                "${{ needs.personalization-service.result }}" == "success" && \
+                "${{ needs.frontend.result }}" == "success" ]]; then
+            echo "All tests passed!"
+            exit 0
+          else
+            echo "Some tests failed!"
+            exit 1
+          fi
+
+  dependency-audit:
     name: dependency-audit
+    needs: [user-service, exchange-connections-service, market-data-service, personalization-service, frontend]
     runs-on: ubuntu-latest
-    needs: [service-ci, frontend]
+    if: always()
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -567,7 +706,7 @@ jobs:
   deploy:
     name: deploy
     runs-on: ubuntu-latest
-    needs: [service-ci, frontend, security]
+    needs: [test-summary, dependency-audit]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:

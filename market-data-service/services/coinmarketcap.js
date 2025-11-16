@@ -297,7 +297,7 @@ async function getCryptoInfo(symbol) {
     // First get the CMC ID from the map
     const cryptoMap = await getCryptoMap();
     const cryptoData = cryptoMap.get(normalized);
-    
+
     if (!cryptoData) {
       console.log(`[CMC] Symbol ${normalized} not found in crypto map`);
       return null;
@@ -312,7 +312,7 @@ async function getCryptoInfo(symbol) {
 
     if (data.data && data.data[cryptoData.id]) {
       const info = data.data[cryptoData.id];
-      
+
       const result = {
         id: info.id,
         name: info.name,

@@ -367,7 +367,6 @@ class PortfolioService {
       throw error;
     }
   }
-
 }
 
 module.exports = PortfolioService;

@@ -2,8 +2,6 @@ const ExchangeConnection = require('../models/exchangeConnection.model');
 const Transaction = require('../models/transaction.model');
 const BinanceService = require('../services/binance.service');
 const BitgetService = require('../services/bitget.service');
-const KuCoinService = require('../services/kucoin.service');
-const BingXService = require('../services/bingx.service');
 const ExchangeFactory = require('../services/exchangeFactory.service');
 const PortfolioService = require('../services/portfolio.service');
 
@@ -180,7 +178,8 @@ class ExchangeController {
           connectionId, // Add connection_id here
           exchange: connection.exchange,
           transactionDate
-        };  // Conversions
+        };
+        // Conversions
         if (t.type === 'convert' || t.exchangeType === 'convert') {
           return {
             ...base,
@@ -212,7 +211,8 @@ class ExchangeController {
             orderId: t.orderId,
             tradeId: t.tradeId
           };
-        }  // Deposits / Withdrawals
+        }
+        // Deposits / Withdrawals
         if (t.type === 'deposit' || t.type === 'withdraw' || t.exchangeType === 'wallet') {
           return {
             ...base,
@@ -299,12 +299,10 @@ class ExchangeController {
   }
 
   /**
-   * =========================================================
-   * GET LIVE SPOT BALANCES (NO PRICES)
-   * - Returns user's real spot assets with free/locked/total
-   * - Also syncs these balances to holdings table for avg cost tracking
-   * =========================================================
-   */
+   * GET LIVE SPOT BALANCES (NO PRICES)
+   * - Returns user's real spot assets with free/locked/total
+   * - Also syncs these balances to holdings table for avg cost tracking
+   */
   static async getBalances(req, res) {
     try {
       const { connectionId } = req.params;
@@ -382,7 +380,8 @@ class ExchangeController {
           const assetSymbol = String(b.asset || b.symbol || '').toUpperCase();
 
           // Price comes directly from backend API call (no fallbacks)
-          const price = currentPrices[assetSymbol] || null;          // Average cost from holdings table if exists
+          const price = currentPrices[assetSymbol] || null;
+          // Average cost from holdings table if exists
           const holding = holdingsMap[assetSymbol];
           const avgCost = holding?.average_cost != null && holding.average_cost > 0 ? holding.average_cost : null;
 
@@ -404,7 +403,7 @@ class ExchangeController {
             locked: Number(b.locked) || 0,
             total: Number(b.total) || 0,
             currentPrice: actualPrice, // Direct from backend API - null if not available
-            change24h: change24h, // 24h price change percentage  
+            change24h, // 24h price change percentage
             averageCost: avgCost // From DB holdings - null if not available or 0
           };
         });

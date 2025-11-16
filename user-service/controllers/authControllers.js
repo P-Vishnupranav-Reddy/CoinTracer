@@ -181,7 +181,7 @@ exports.getProfile = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.userId; // Set by auth middleware
-    const { name, birthday, phone_number, country } = req.body;
+    const { name, birthday, phoneNumber, country } = req.body;
 
     // Build dynamic query based on provided fields
     const updates = [];
@@ -196,9 +196,9 @@ exports.updateProfile = async (req, res) => {
       updates.push(`birthday = $${paramCount++}`);
       values.push(birthday || null);
     }
-    if (phone_number !== undefined) {
+    if (phoneNumber !== undefined) {
       updates.push(`phone_number = $${paramCount++}`);
-      values.push(phone_number || null);
+      values.push(phoneNumber || null);
     }
     if (country !== undefined) {
       updates.push(`country = $${paramCount++}`);

@@ -1,0 +1,8 @@
+
+C:\Users\prajw\OneDrive\Desktop\PESU_RR_CSE_G_P25_Digital_Asset_and_Cryptocurrency_Portfolio_Tracker_CoinTracer\market-data-service\controllers\marketController.js
+   68:43  warning  'next' is defined but never used. Allowed unused args must match /^_/u   no-unused-vars
+  289:15  error    Expected newline between test and consequent of ternary expression       multiline-ternary
+  289:28  error    Expected newline between consequent and alternate of ternary expression  multiline-ternary
+
+✖ 3 problems (2 errors, 1 warning)
+

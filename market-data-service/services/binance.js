@@ -172,12 +172,12 @@ async function getAssetChartData(assetSymbol, interval = '1d', limit = 100) {
   }
 }
 
-module.exports = { 
-  resolveSymbols, 
-  getTicker24, 
-  getTickers24, 
+module.exports = {
+  resolveSymbols,
+  getTicker24,
+  getTickers24,
   getKlines,
   getAssetChartData,
-  pickQuotesForVs, 
-  getExchangeInfo 
+  pickQuotesForVs,
+  getExchangeInfo
 };

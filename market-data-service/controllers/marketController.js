@@ -1,5 +1,4 @@
 const cmcService = require('../services/coinmarketcap');
-const { resolveSymbols, getTickers24, getExchangeInfo } = require('../services/binance');
 
 /**
  * Simple CoinMarketCap-only controller
@@ -9,18 +8,6 @@ const { resolveSymbols, getTickers24, getExchangeInfo } = require('../services/b
 function parseAssetsParam(req) {
   const q = req.query.assets || '';
   return q.split(',').map((s) => s.trim()).filter(Boolean);
-}
-
-function normalizeFromTicker(meta, ticker, vs) {
-  if (!meta || !ticker) return null;
-  return {
-    assetId: meta.baseAsset.toLowerCase(),
-    vs,
-    price: Number(ticker.lastPrice) || null,
-    marketCap: null, // not provided by Binance
-    change24h: Number(ticker.priceChangePercent) || null,
-    lastUpdated: ticker.closeTime ? new Date(ticker.closeTime).toISOString() : new Date().toISOString()
-  };
 }
 
 /**
@@ -78,7 +65,7 @@ exports.getPrice = async (req, res, next) => {
  * GET /api/v1/market/prices/batch?assets=BTC,ETH,SOL
  * Get prices for multiple assets
  */
-exports.getPricesBatch = async (req, res, next) => {
+exports.getPricesBatch = async (req, res) => {
   try {
     const vs = (req.query.vs || 'usd').toUpperCase();
     const assets = parseAssetsParam(req);
@@ -266,18 +253,18 @@ exports.getAssetDetails = async (req, res, next) => {
     ]);
 
     if (!metadata && !marketData) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         message: `Asset ${symbol} not found`,
-        symbol 
+        symbol
       });
     }
 
     // Combine metadata and market data
     const response = {
-      symbol: symbol,
+      symbol,
       name: metadata?.name || marketData?.name || symbol,
       slug: metadata?.slug || marketData?.slug || symbol.toLowerCase(),
-      
+
       // Metadata
       description: metadata?.description || null,
       logo: metadata?.logo || null,
@@ -285,7 +272,7 @@ exports.getAssetDetails = async (req, res, next) => {
       dateLaunched: metadata?.date_launched || null,
       tags: metadata?.tags || [],
       category: metadata?.category || null,
-      
+
       // Links
       links: {
         website: metadata?.website || null,
@@ -297,26 +284,28 @@ exports.getAssetDetails = async (req, res, next) => {
         sourceCode: metadata?.source_code || null,
         explorer: metadata?.explorer || null
       },
-      
+
       // Market Data
-      market: marketData ? {
-        price: marketData.price,
-        marketCap: marketData.market_cap,
-        marketCapRank: null, // Would need listings endpoint for rank
-        volume24h: marketData.volume_24h,
-        volumeChange24h: marketData.volume_change_24h,
-        percentChange1h: marketData.percent_change_1h,
-        percentChange24h: marketData.percent_change_24h,
-        percentChange7d: marketData.percent_change_7d,
-        circulatingSupply: marketData.circulating_supply,
-        totalSupply: marketData.total_supply,
-        maxSupply: marketData.max_supply,
-        fullyDilutedValuation: marketData.max_supply ? marketData.price * marketData.max_supply : null,
-        marketCapDominance: marketData.market_cap_dominance,
-        lastUpdated: marketData.last_updated
-      } : null,
-      
-      vs: vs
+      market: marketData
+        ? {
+            price: marketData.price,
+            marketCap: marketData.market_cap,
+            marketCapRank: null, // Would need listings endpoint for rank
+            volume24h: marketData.volume_24h,
+            volumeChange24h: marketData.volume_change_24h,
+            percentChange1h: marketData.percent_change_1h,
+            percentChange24h: marketData.percent_change_24h,
+            percentChange7d: marketData.percent_change_7d,
+            circulatingSupply: marketData.circulating_supply,
+            totalSupply: marketData.total_supply,
+            maxSupply: marketData.max_supply,
+            fullyDilutedValuation: marketData.max_supply ? marketData.price * marketData.max_supply : null,
+            marketCapDominance: marketData.market_cap_dominance,
+            lastUpdated: marketData.last_updated
+          }
+        : null,
+
+      vs
     };
 
     res.json(response);
@@ -344,9 +333,9 @@ exports.getAssetChart = async (req, res, next) => {
     // Validate interval
     const validIntervals = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'];
     if (!validIntervals.includes(interval)) {
-      return res.status(400).json({ 
-        message: 'Invalid interval', 
-        validIntervals 
+      return res.status(400).json({
+        message: 'Invalid interval',
+        validIntervals
       });
     }
 
@@ -356,10 +345,10 @@ exports.getAssetChart = async (req, res, next) => {
     const chartData = await binanceService.getAssetChartData(symbol, interval, Math.min(limit, 1000));
 
     if (!chartData) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         message: `Chart data not available for ${symbol}`,
         note: 'Asset may not be listed on Binance',
-        symbol 
+        symbol
       });
     }
 

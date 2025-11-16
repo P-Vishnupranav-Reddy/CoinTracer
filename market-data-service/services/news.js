@@ -132,7 +132,9 @@ async function parseRSSFeed(url) {
           .replace(/&nbsp;/g, ' ')
           .trim();
 
-        if (description.length > 300) { description = description.substring(0, 300) + '...'; }
+        if (description.length > 300) {
+          description = description.substring(0, 300) + '...';
+        }
       }
 
       title = title

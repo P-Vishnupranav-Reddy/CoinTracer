@@ -1,0 +1,68 @@
+
+C:\Users\prajw\OneDrive\Desktop\PESU_RR_CSE_G_P25_Digital_Asset_and_Cryptocurrency_Portfolio_Tracker_CoinTracer\exchange-connections-service\controllers\exchange.controller.js
+    5:7   warning  'KuCoinService' is assigned a value but never used  no-unused-vars
+    6:7   warning  'BingXService' is assigned a value but never used   no-unused-vars
+   12:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   12:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   13:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   13:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   14:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   14:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   15:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   15:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   77:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   77:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   78:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   78:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   79:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   79:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   80:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+   80:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  136:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  136:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  137:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  137:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  138:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  138:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  139:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  139:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  183:11  error    Irregular whitespace not allowed                    no-irregular-whitespace
+  215:10  error    Irregular whitespace not allowed                    no-irregular-whitespace
+  286:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  286:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  287:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  287:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  288:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  288:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  289:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  289:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  302:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  302:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  303:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  303:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  304:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  304:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  305:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  305:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  306:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  306:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  307:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  307:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  385:60  error    Irregular whitespace not allowed                    no-irregular-whitespace
+  385:62  error    Irregular whitespace not allowed                    no-irregular-whitespace
+  385:64  error    Irregular whitespace not allowed                    no-irregular-whitespace
+  385:66  error    Irregular whitespace not allowed                    no-irregular-whitespace
+  385:68  error    Irregular whitespace not allowed                    no-irregular-whitespace
+  466:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  466:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  467:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  467:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  468:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  468:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  469:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  469:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  470:1   error    Irregular whitespace not allowed                    no-irregular-whitespace
+  470:3   error    Irregular whitespace not allowed                    no-irregular-whitespace
+
+✖ 63 problems (61 errors, 2 warnings)
+

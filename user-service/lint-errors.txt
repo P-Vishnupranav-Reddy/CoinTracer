@@ -1,0 +1,8 @@
+
+C:\Users\prajw\OneDrive\Desktop\PESU_RR_CSE_G_P25_Digital_Asset_and_Cryptocurrency_Portfolio_Tracker_CoinTracer\user-service\controllers\authControllers.js
+  184:29  error  Identifier 'phone_number' is not in camel case  camelcase
+  199:9   error  Identifier 'phone_number' is not in camel case  camelcase
+  201:19  error  Identifier 'phone_number' is not in camel case  camelcase
+
+✖ 3 problems (3 errors, 0 warnings)
+
