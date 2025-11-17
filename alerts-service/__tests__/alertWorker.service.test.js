@@ -7,6 +7,15 @@ jest.mock('../services/alert.service');
 jest.mock('../../shared/database', () => ({
   query: jest.fn()
 }));
+jest.mock('../../shared', () => ({
+  ...jest.requireActual('../../shared'),
+  createLogger: () => ({
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn()
+  })
+}));
 
 describe('AlertWorker', () => {
   let worker;

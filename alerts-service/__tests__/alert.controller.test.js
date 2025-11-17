@@ -6,12 +6,19 @@ const { authMiddleware } = require('../../shared');
 
 // Mock dependencies
 jest.mock('../services/alert.service');
+jest.mock('axios');
 jest.mock('../../shared', () => ({
   ...jest.requireActual('../../shared'),
   authMiddleware: (req, res, next) => {
     req.userId = 'test-user-123';
     next();
-  }
+  },
+  createLogger: () => ({
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn()
+  })
 }));
 
 // Create express app for testing
@@ -30,6 +37,15 @@ app.use((err, req, res, next) => {
 describe('Alert Controller', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Ensure all AlertService methods are mocked
+    AlertService.createAlert = jest.fn();
+    AlertService.getUserAlerts = jest.fn();
+    AlertService.getAlertById = jest.fn();
+    AlertService.updateAlert = jest.fn();
+    AlertService.deleteAlert = jest.fn();
+    AlertService.resetAlert = jest.fn();
+    AlertService.fetchCurrentPrice = jest.fn();
+    AlertService.checkAlertCondition = jest.fn();
   });
 
   describe('POST /api/v1/alerts', () => {

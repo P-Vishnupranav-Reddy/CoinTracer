@@ -6,10 +6,21 @@ const axios = require('axios');
 // Mock dependencies
 jest.mock('../../shared/database');
 jest.mock('axios');
+jest.mock('../../shared', () => ({
+  ...jest.requireActual('../../shared'),
+  createLogger: () => ({
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn()
+  })
+}));
 
 describe('AlertService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Ensure axios is always mocked
+    axios.get = jest.fn();
   });
 
   describe('createAlert', () => {
@@ -312,11 +323,17 @@ describe('AlertService', () => {
     });
 
     it('should return null on error', async () => {
-      axios.get.mockRejectedValue(new Error('Network error'));
+      // Mock axios to reject with a non-404 error
+      axios.get.mockRejectedValue({ 
+        message: 'Network error',
+        response: { status: 500 }
+      });
 
       const priceData = await AlertService.fetchCurrentPrice('bitcoin');
 
       expect(priceData).toBeNull();
+      expect(axios.get).toHaveBeenCalled();
+
     });
   });
 
