@@ -31,6 +31,9 @@ describe('AlertWorker', () => {
 
       worker.start();
 
+      // Wait for async checkAlerts to complete
+      await Promise.resolve();
+
       expect(worker.isRunning).toBe(true);
       expect(AlertService.getActiveAlertsForChecking).toHaveBeenCalled();
     });
@@ -40,7 +43,13 @@ describe('AlertWorker', () => {
 
       worker.start();
 
+      // Wait for initial check to complete
+      await Promise.resolve();
+
       jest.advanceTimersByTime(2000);
+
+      // Wait for async operations to complete
+      await Promise.resolve();
 
       expect(AlertService.getActiveAlertsForChecking.mock.calls.length).toBeGreaterThan(1);
     });

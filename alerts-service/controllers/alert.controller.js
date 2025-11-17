@@ -154,7 +154,7 @@ exports.testAlert = async (req, res, next) => {
     }
 
     // Fetch current price
-    const priceData = await AlertService.fetchCurrentPrice(alert.assetId,alert.assetSymbol);
+    const priceData = await AlertService.fetchCurrentPrice(alert.assetId, alert.assetSymbol);
     if (!priceData) {
       return res.status(503).json({ error: 'Unable to fetch current price data' });
     }

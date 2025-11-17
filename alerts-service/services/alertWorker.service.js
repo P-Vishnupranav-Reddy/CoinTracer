@@ -5,6 +5,7 @@
 
 const AlertService = require('./alert.service');
 const { createLogger } = require('../../shared');
+const { query } = require('../../shared/database');
 
 const logger = createLogger('Alert-Worker');
 
@@ -103,8 +104,8 @@ class AlertWorker {
       }
 
       // Fetch current price data
-      const priceData = await AlertService.fetchCurrentPrice(alert.assetId,alert.assetSymbol);
-
+      const priceData = await AlertService.fetchCurrentPrice(alert.assetId, alert.assetSymbol);
+      
       if (!priceData) {
         logger.debug('Could not fetch price data', { alertId: alert.id, assetId: alert.assetId });
         return;
