@@ -124,6 +124,10 @@ describe('AlertWorker', () => {
       const p1 = worker.checkAlerts();
       const p2 = worker.checkAlerts(); // should skip
 
+      // Allow the pending check to resolve
+      jest.advanceTimersByTime(100);
+      await Promise.resolve();
+
       await Promise.all([p1, p2]);
 
       expect(AlertService.getActiveAlertsForChecking).toHaveBeenCalledTimes(1);
