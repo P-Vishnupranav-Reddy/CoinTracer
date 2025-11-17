@@ -43,13 +43,13 @@ class User {
         return existingUser;
       }
 
-      // Otherwise create new user
+      // Otherwise create new user with NULL password (requires password setup later)
       console.log(`Creating new user for ${email}`);
       const result = await pool.query(
         `INSERT INTO users (email, name, password_hash)
          VALUES ($1, $2, $3)
          RETURNING *`,
-        [email, name, 'demo']
+        [email, name, null]
       );
 
       const newUser = result.rows[0];
@@ -75,19 +75,6 @@ class User {
       return result.rows[0];
     } catch (error) {
       console.error('Error creating user:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get all users (for debugging only)
-   */
-  static async getAll() {
-    try {
-      const result = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
-      return result.rows;
-    } catch (error) {
-      console.error('Error fetching users:', error);
       throw error;
     }
   }

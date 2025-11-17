@@ -37,6 +37,27 @@ describe('Manual Holding Controller Tests', () => {
   });
 
   describe('getManualHoldings', () => {
+    it('should return empty array when no holdings', async () => {
+      mockReq.params = { portfolioId: 'portfolio-123' };
+
+      ManualHolding.getByPortfolioId.mockResolvedValue([]);
+
+      await manualHoldingController.getManualHoldings(mockReq, mockRes);
+
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        holdings: []
+      });
+    });
+
+    it('should reject missing portfolio id', async () => {
+      mockReq.params = {};
+
+      await manualHoldingController.getManualHoldings(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+
     it('should return manual holdings with live prices', async () => {
       mockReq.params = { portfolioId: 'portfolio-123' };
 

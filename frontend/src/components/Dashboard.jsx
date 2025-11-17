@@ -204,7 +204,7 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // Load aggregated summary across all portfolios by reusing backend portfolio summaries
+  // Load aggregated summary by calculating each portfolio's local summary and summing them
   useEffect(() => {
     const loadGlobalSummary = async () => {
       if (!portfolios || portfolios.length === 0) {
@@ -218,84 +218,80 @@ export default function Dashboard() {
       setGlobalSummaryError('');
 
       try {
-        const portfolioResponses = await Promise.all(
-          portfolios.map(async (p) => {
-            try {
-              const res = await exchangeApi.getPortfolio(p.id);
-              return res?.data || null;
-            } catch (err) {
-              console.warn('Failed to fetch portfolio for aggregation', p.id, err);
-              return null;
-            }
-          })
-        );
+        let aggregatedTotalValue = 0;
+        let aggregatedTotal24hPnL = 0;
+        let aggregatedAssetCount = 0;
 
-        const validPortfolios = portfolioResponses.filter(Boolean);
-        if (!validPortfolios.length) {
-          setGlobalSummary(null);
-          return;
+        // Process each portfolio sequentially to calculate its local summary
+        for (const p of portfolios) {
+          try {
+            // Fetch portfolio data
+            const res = await exchangeApi.getPortfolio(p.id);
+            const portfolioData = res?.data;
+            if (!portfolioData) continue;
+
+            const holdings = portfolioData?.holdings || [];
+
+            // Fetch manual holdings
+            let manualHoldingsData = [];
+            try {
+              const manualRes = await manualHoldingAPI.getHoldings(p.id);
+              manualHoldingsData = manualRes?.data?.holdings || [];
+            } catch {
+              // Manual holdings might not exist
+            }
+
+            // Transform holdings to match buildCombinedHoldings expected format
+            const transformedHoldings = holdings.map(h => ({
+              asset: h.asset_symbol || h.symbol,
+              symbol: h.asset_symbol || h.symbol,
+              total: h.total_quantity,
+              quantity: h.total_quantity,
+              currentPrice: h.current_price || h.currentPrice,
+              averageCost: h.average_cost || h.averageCost,
+              change24h: h.change24h || h.change_24h || 0
+            }));
+
+            // Build combined holdings using the same function as individual portfolio view
+            const combined = buildCombinedHoldings({
+              balances: transformedHoldings,
+              manualHoldings: manualHoldingsData
+            });
+
+            // Calculate this portfolio's summary (same logic as the summary useMemo)
+            let portfolioTotalValue = 0;
+            let portfolioTotal24hPnL = 0;
+
+            combined.forEach(h => {
+              const qty = Number(h.quantity) || 0;
+              const price = Number(h.currentPrice) || 0;
+              const change24h = Number(h.change24h) || 0;
+
+              portfolioTotalValue += qty * price;
+              portfolioTotal24hPnL += qty * price * (change24h / 100);
+            });
+
+            // Add this portfolio's totals to the aggregated totals
+            aggregatedTotalValue += portfolioTotalValue;
+            aggregatedTotal24hPnL += portfolioTotal24hPnL;
+            aggregatedAssetCount += combined.length;
+
+          } catch (err) {
+            console.warn(`Failed to calculate portfolio ${p.name}:`, err);
+          }
         }
 
-        let totalValue = 0;
-        let totalInvested = 0;
-        let totalPnL = 0;
-        let total24hPnL = 0;
-        let assetCount = 0;
-
-        validPortfolios.forEach((data) => {
-          const summary = data?.summary || {};
-          totalValue += Number(summary.totalValue) || 0;
-          totalInvested += Number(summary.totalInvested) || 0;
-          totalPnL += Number(summary.totalPnL) || 0;
-          assetCount +=
-            Number(summary.assetCount) ||
-            Number(data?.holdings?.length || 0);
-
-          const holdings = data?.holdings || [];
-
-          holdings.forEach((holding) => {
-            const qty = Number(
-              holding?.total_quantity ??
-                holding?.quantity ??
-                holding?.total ??
-                0
-            );
-            if (!qty) return;
-
-            const currentPrice = Number(
-              holding?.current_price ??
-                holding?.currentPrice ??
-                holding?.price ??
-                0
-            );
-            const change24h = Number(
-              holding?.change24h ?? holding?.change_24h ?? 0
-            );
-
-            if (currentPrice > 0 && change24h !== 0) {
-              total24hPnL += qty * currentPrice * (change24h / 100);
-            }
-          });
-        });
-
-        const totalPnLPercentage =
-          totalInvested > 0
-            ? ((totalPnL / totalInvested) * 100).toFixed(2)
-            : '0.00';
         const total24hPnLPercentage =
-          totalValue - total24hPnL > 0
-            ? ((total24hPnL / (totalValue - total24hPnL)) * 100).toFixed(2)
+          aggregatedTotalValue - aggregatedTotal24hPnL > 0
+            ? ((aggregatedTotal24hPnL / (aggregatedTotalValue - aggregatedTotal24hPnL)) * 100).toFixed(2)
             : '0.00';
 
         setGlobalSummary({
-          totalValue: totalValue.toFixed(2),
-          totalInvested: totalInvested.toFixed(2),
-          totalPnL: totalPnL.toFixed(2),
-          totalPnLPercentage,
-          total24hPnL: total24hPnL.toFixed(2),
+          totalValue: aggregatedTotalValue.toFixed(2),
+          total24hPnL: aggregatedTotal24hPnL.toFixed(2),
           total24hPnLPercentage,
           portfolioCount: portfolios.length,
-          assetCount
+          assetCount: aggregatedAssetCount
         });
       } catch (e) {
         console.error('Failed to load aggregated portfolio summary', e);
@@ -611,7 +607,38 @@ export default function Dashboard() {
   const deleteManualHolding = async (assetSymbol) => {
     if (!confirm(`Delete manual holding for ${assetSymbol}?`)) return;
     try {
+      // Get the holding details before deleting for transaction record
+      const holdingsRes = await manualHoldingAPI.getHoldings(selectedId);
+      const holdingToDelete = (holdingsRes?.holdings || []).find(
+        h => (h.asset_symbol || h.asset)?.toUpperCase() === assetSymbol.toUpperCase()
+      );
+      
+      // Delete the manual holding
       await manualHoldingAPI.deleteHolding(selectedId, assetSymbol);
+      
+      // Auto-create a SELL transaction entry
+      if (holdingToDelete) {
+        try {
+          const quantity = Number(holdingToDelete.quantity) || 0;
+          const avgCost = Number(holdingToDelete.average_cost || holdingToDelete.averageCost) || 0;
+          const currentPrice = Number(holdingToDelete.current_price || holdingToDelete.currentPrice) || avgCost;
+          
+          const transactionData = {
+            date: new Date().toISOString().split('T')[0],
+            type: 'sell',
+            assetSymbol: assetSymbol.toUpperCase(),
+            quantity: quantity,
+            price: currentPrice > 0 ? currentPrice : avgCost,
+            totalValue: quantity * (currentPrice > 0 ? currentPrice : avgCost),
+            exchange: '-',
+            notes: 'Manual entry: Sell transaction (holding deleted)'
+          };
+          await exchangeApi.addTransaction(selectedId, transactionData);
+        } catch (txErr) {
+          console.warn('Failed to create sell transaction entry:', txErr);
+        }
+      }
+      
       setSuccess(`Manual holding for ${assetSymbol} deleted`);
       // Refresh manual holdings
       const res = await manualHoldingAPI.getHoldings(selectedId);
@@ -737,27 +764,6 @@ export default function Dashboard() {
               </div>
               <div className="helper">
                 {globalSummary.assetCount || 0} aggregated asset position(s)
-              </div>
-            </div>
-            <div className="card" style={{ background: 'rgba(15,23,42,0.7)' }}>
-              <div className="helper">Overall Unrealized P&L</div>
-              <div
-                style={{
-                  fontSize: 26,
-                  fontWeight: 700,
-                  color: Number(globalSummary.totalPnL || 0) >= 0 ? '#4ade80' : '#f87171',
-                }}
-              >
-                {Number(globalSummary.totalPnL || 0) >= 0 ? '+' : ''}$ {Number(globalSummary.totalPnL || 0).toFixed(2)}
-              </div>
-              <div
-                className="helper"
-                style={{
-                  color: Number(globalSummary.totalPnL || 0) >= 0 ? '#4ade80' : '#f87171',
-                }}
-              >
-                {Number(globalSummary.totalPnLPercentage || 0) >= 0 ? '+' : ''}
-                {Number(globalSummary.totalPnLPercentage || 0).toFixed(2)}%
               </div>
             </div>
             <div className="card" style={{ background: 'rgba(15,23,42,0.7)' }}>
@@ -917,6 +923,12 @@ export default function Dashboard() {
                       const avgCost = h.averageCost;
                       const change24h = h.change24h || 0;
                       
+                      // Calculate P&L percentage if we have both prices
+                      let pnlPercent = null;
+                      if (avgCost != null && avgCost > 0 && currentPrice != null && currentPrice > 0) {
+                        pnlPercent = ((currentPrice - avgCost) / avgCost) * 100;
+                      }
+                      
                       return (
                         <tr key={`${h.asset}-${h.source}`} style={{ borderBottom: idx === combinedHoldings.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.06)' }}>
                           <td style={{ padding: '10px 6px' }}>
@@ -935,16 +947,16 @@ export default function Dashboard() {
                               >
                                 {h.asset}
                               </span>
-                              {change24h !== 0 && (
+                              {pnlPercent != null && (
                                 <span style={{ 
                                   fontSize: 11, 
                                   fontWeight: 600,
-                                  color: change24h >= 0 ? '#4ade80' : '#f87171',
+                                  color: pnlPercent >= 0 ? '#4ade80' : '#f87171',
                                   padding: '2px 6px',
                                   borderRadius: 4,
-                                  backgroundColor: change24h >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)'
+                                  backgroundColor: pnlPercent >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)'
                                 }}>
-                                  {change24h >= 0 ? '+' : ''}{change24h.toFixed(2)}%
+                                  {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
                                 </span>
                               )}
                             </div>

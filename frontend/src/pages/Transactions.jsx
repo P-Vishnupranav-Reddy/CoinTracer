@@ -19,7 +19,9 @@ export function Transactions() {
     assetSymbol: '', 
     quantity: '', 
     averageCost: '', 
-    notes: '' 
+    notes: '',
+    purchaseDate: new Date().toISOString().split('T')[0], // Default to today
+    exchange: '' // Custom exchange name
   });
 
   useEffect(() => {
@@ -29,10 +31,23 @@ export function Transactions() {
           exchangeApi.getPortfolios(),
           exchangeApi.getConnections().catch(() => ({ data: { connections: [] } }))
         ]);
-        const list = pRes.data.portfolios || [];
-        setPortfolios(list);
-        setConnections(cRes?.data?.connections || []);
-        if (list.length && !portfolioId) setPortfolioId(list[0].id);
+        const allPortfolios = pRes.data.portfolios || [];
+        const allConnections = cRes?.data?.connections || [];
+        
+        // Filter to only show portfolios that are connected to an exchange
+        const connectedPortfolios = allPortfolios.filter(p => 
+          allConnections.some(c => String(c.portfolio_id) === String(p.id))
+        );
+        
+        setPortfolios(connectedPortfolios);
+        setConnections(allConnections);
+        
+        // Set initial portfolio to first connected one
+        if (connectedPortfolios.length && !portfolioId) {
+          setPortfolioId(connectedPortfolios[0].id);
+        } else if (!connectedPortfolios.length) {
+          setPortfolioId(null);
+        }
       } catch {
         setError('Failed to load portfolios');
       }
@@ -78,7 +93,7 @@ export function Transactions() {
   }, [connections, portfolioId]);
 
   const addManualHolding = async () => {
-    const { assetSymbol, quantity } = manualForm;
+    const { assetSymbol, quantity, averageCost, purchaseDate, exchange } = manualForm;
     if (!assetSymbol || !quantity || quantity <= 0) {
       return setError('Asset symbol and positive quantity are required');
     }
@@ -87,13 +102,40 @@ export function Transactions() {
       const data = {
         assetSymbol: assetSymbol.trim().toUpperCase(),
         quantity: parseFloat(quantity),
-        averageCost: manualForm.averageCost ? parseFloat(manualForm.averageCost) : null,
+        averageCost: averageCost ? parseFloat(averageCost) : null,
         notes: manualForm.notes || ''
       };
+      
+      // Add the manual holding
       await manualHoldingAPI.upsertHolding(portfolioId, data);
+      
+      // Auto-create a BUY transaction entry in the transaction history
+      if (averageCost && parseFloat(averageCost) > 0) {
+        try {
+          const transactionData = {
+            date: purchaseDate || new Date().toISOString().split('T')[0],
+            type: 'buy',
+            assetSymbol: data.assetSymbol,
+            quantity: data.quantity,
+            price: parseFloat(averageCost),
+            totalValue: data.quantity * parseFloat(averageCost),
+            exchange: exchange || '-',
+            notes: `Manual entry: ${manualForm.notes || 'Buy transaction'}`
+          };
+          await exchangeApi.addTransaction(portfolioId, transactionData);
+        } catch (txErr) {
+          console.warn('Failed to create transaction entry:', txErr);
+          // Don't fail the whole operation if transaction creation fails
+        }
+      }
+      
       setSuccess(`Manual holding for ${data.assetSymbol} added successfully`);
       setAddingManual(false);
-      setManualForm({ assetSymbol: '', quantity: '', averageCost: '', notes: '' });
+      setManualForm({ assetSymbol: '', quantity: '', averageCost: '', notes: '', purchaseDate: new Date().toISOString().split('T')[0], exchange: '' });
+      
+      // Reload transactions to show the new entry
+      loadTransactions();
+      
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
@@ -136,6 +178,19 @@ export function Transactions() {
         </div>
 
         {error && <div className="toast error" style={{ marginBottom: 10 }}>{error}</div>}
+        {success && <div className="toast success" style={{ marginBottom: 10 }}>{success}</div>}
+
+        {portfolios.length === 0 && (
+          <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
+            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No Exchange Portfolios Found</div>
+            <div className="helper">Transaction history is only available for portfolios connected to exchanges.</div>
+            <div className="helper" style={{ marginTop: 8 }}>Connect an exchange from the Dashboard to view transactions.</div>
+          </div>
+        )}
+
+        {portfolios.length > 0 && (
+          <>
         {success && <div className="toast success" style={{ marginBottom: 10, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e' }}>{success}</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 16, alignItems: 'start' }}>
@@ -264,9 +319,27 @@ export function Transactions() {
                   className="input" 
                   type="number" 
                   step="any"
-                  placeholder="50000" 
+                  placeholder="45000.00" 
                   value={manualForm.averageCost} 
                   onChange={e => setManualForm({...manualForm, averageCost: e.target.value})} 
+                />
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <label className="helper" style={{ display: 'block', marginBottom: 4 }}>Purchase Date (optional)</label>
+                <input 
+                  className="input" 
+                  type="date"
+                  value={manualForm.purchaseDate} 
+                  onChange={e => setManualForm({...manualForm, purchaseDate: e.target.value})} 
+                />
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <label className="helper" style={{ display: 'block', marginBottom: 4 }}>Exchange/Platform (optional)</label>
+                <input 
+                  className="input" 
+                  placeholder="Binance, Coinbase, etc." 
+                  value={manualForm.exchange} 
+                  onChange={e => setManualForm({...manualForm, exchange: e.target.value})} 
                 />
               </div>
               <div style={{ marginBottom: 12 }}>
@@ -285,6 +358,8 @@ export function Transactions() {
               </div>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

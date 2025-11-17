@@ -7,24 +7,30 @@ const PortfolioService = require('../services/portfolio.service');
 async function getManualHoldings(req, res) {
   try {
     const { portfolioId } = req.params;
+    console.log('[Manual Holdings] GET request for portfolio:', portfolioId);
 
     if (!portfolioId) {
       return res.status(400).json({ error: 'Portfolio ID is required' });
     }
 
     const holdings = await ManualHolding.getByPortfolioId(portfolioId);
+    console.log(`[Manual Holdings] Found ${holdings.length} holdings`);
 
     // Fetch live prices for all assets
     if (holdings.length > 0) {
       const assetSymbols = holdings.map(h => h.asset_symbol);
+      console.log('[Manual Holdings] Fetching prices for:', assetSymbols);
       const currentPrices = await PortfolioService.fetchLivePrices(assetSymbols, 'usd');
 
       // Add current prices to holdings
       holdings.forEach(h => {
-        h.current_price = currentPrices[h.asset_symbol.toUpperCase()] || null;
+        const priceData = currentPrices[h.asset_symbol.toUpperCase()];
+        h.current_price = priceData?.price || priceData || null;
+        console.log(`[Manual Holdings] ${h.asset_symbol}: quantity=${h.quantity}, avgCost=${h.average_cost}, currentPrice=${h.current_price}`);
       });
     }
 
+    console.log('[Manual Holdings] Returning response:', JSON.stringify({ success: true, holdings }, null, 2));
     res.json({
       success: true,
       holdings
@@ -46,25 +52,53 @@ async function upsertManualHolding(req, res) {
     const { portfolioId } = req.params;
     const { assetSymbol, quantity, averageCost, notes } = req.body;
 
+    console.log('[Manual Holdings] UPSERT request:', { portfolioId, assetSymbol, quantity, averageCost, notes });
+
     if (!portfolioId || !assetSymbol || quantity === undefined) {
+      console.log('[Manual Holdings] Validation failed: missing required fields');
       return res.status(400).json({
         error: 'Portfolio ID, asset symbol, and quantity are required'
       });
     }
 
     if (quantity < 0) {
+      console.log('[Manual Holdings] Validation failed: negative quantity');
       return res.status(400).json({
         error: 'Quantity must be non-negative'
       });
+    }
+
+    // If no average cost provided, fetch current price and use it as cost basis
+    let finalAverageCost = averageCost;
+    if (!finalAverageCost || finalAverageCost === 0) {
+      console.log('[Manual Holdings] No average cost provided, fetching current price for:', assetSymbol);
+      try {
+        const currentPrices = await PortfolioService.fetchLivePrices([assetSymbol], 'usd');
+        const priceData = currentPrices[assetSymbol.toUpperCase()];
+        const currentPrice = priceData?.price || priceData;
+
+        if (currentPrice && currentPrice > 0) {
+          finalAverageCost = currentPrice;
+          console.log(`[Manual Holdings] Using current price as cost basis: $${currentPrice}`);
+        } else {
+          console.log('[Manual Holdings] Could not fetch current price, using null');
+          finalAverageCost = null;
+        }
+      } catch (priceError) {
+        console.warn('[Manual Holdings] Failed to fetch current price:', priceError.message);
+        finalAverageCost = null;
+      }
     }
 
     const holding = await ManualHolding.upsert(
       portfolioId,
       assetSymbol,
       quantity,
-      averageCost,
+      finalAverageCost,
       notes
     );
+
+    console.log('[Manual Holdings] Upsert successful:', holding);
 
     res.json({
       success: true,

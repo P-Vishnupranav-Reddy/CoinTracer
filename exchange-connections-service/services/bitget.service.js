@@ -113,38 +113,97 @@ class BitgetService {
    * ==============================
    */
 
-  async fetchTrades(symbol = null, since = null, limit = 100) {
+  async fetchTrades(symbol = null, since = null, limit = 500) {
     try {
       let allTrades = [];
 
-      if (symbol) {
-        const trades = await this.exchange.fetchMyTrades(symbol, since, limit);
-        allTrades = trades;
-      } else {
-        const markets = await this.exchange.fetchMarkets();
-        const balance = await this.fetchBalance();
-        const assetsWithBalance = balance.map(b => b.asset);
+      // Bitget has strict time range limits - use last 90 days if since is too old
+      const now = Date.now();
+      const ninetyDaysAgo = now - (90 * 24 * 60 * 60 * 1000);
+      const effectiveSince = since && since < ninetyDaysAgo ? ninetyDaysAgo : (since || ninetyDaysAgo);
 
-        for (const asset of assetsWithBalance) {
-          const pairs = [`${asset}/USDT`, `${asset}/USDC`, `${asset}/BTC`];
-          for (const pair of pairs) {
+      console.log(`[Bitget] Using time range: ${new Date(effectiveSince).toISOString()} to ${new Date(now).toISOString()}`);
+
+      if (symbol) {
+        console.log(`[Bitget] Fetching trades for specific symbol: ${symbol}`);
+        const trades = await this.exchange.fetchMyTrades(symbol, effectiveSince, limit);
+        console.log(`[Bitget] Found ${trades.length} trades for ${symbol}`);
+        return this.formatTrades(trades);
+      }
+
+      console.log('[Bitget] Fetching ALL trade history using comprehensive approach');
+      const markets = await this.exchange.loadMarkets();
+      console.log(`[Bitget] Total markets available: ${Object.keys(markets).length}`);
+
+      // Collect all assets to scan
+      const allAssets = new Set();
+
+      // Strategy 1: Get assets with current balance
+      try {
+        const balance = await this.fetchBalance();
+        balance.forEach(b => allAssets.add(b.asset));
+        console.log(`[Bitget] Found ${balance.length} assets with current balance`);
+      } catch (err) {
+        console.warn('[Bitget] Could not fetch balance:', err.message);
+      }
+
+      // Strategy 2: Scan deposit/withdrawal history in 90-day chunks
+      try {
+        console.log('[Bitget] Scanning deposit/withdrawal history (last 90 days) to find all traded assets...');
+        const [deposits, withdrawals] = await Promise.all([
+          this.exchange.fetchDeposits(undefined, effectiveSince, 500).catch(err => {
+            console.warn('[Bitget] Could not fetch deposits:', err.message);
+            return [];
+          }),
+          this.exchange.fetchWithdrawals(undefined, effectiveSince, 500).catch(err => {
+            console.warn('[Bitget] Could not fetch withdrawals:', err.message);
+            return [];
+          })
+        ]);
+
+        deposits.forEach(d => allAssets.add(d.currency));
+        withdrawals.forEach(w => allAssets.add(w.currency));
+        console.log(`[Bitget] Found ${deposits.length} deposits and ${withdrawals.length} withdrawals`);
+      } catch (err) {
+        console.warn('[Bitget] Could not fetch deposit/withdrawal history:', err.message);
+      }
+
+      const assetsArray = Array.from(allAssets);
+      console.log(`[Bitget] Total unique assets to scan: ${assetsArray.length} - ${assetsArray.join(', ')}`);
+
+      // Fetch trades for all identified assets
+      for (const asset of assetsArray) {
+        const pairs = [`${asset}/USDT`, `${asset}/USDC`, `${asset}/BTC`, `${asset}/ETH`, `${asset}/USDD`];
+        for (const pair of pairs) {
+          if (markets[pair]) {
             try {
-              if (markets.find(m => m.symbol === pair)) {
-                const trades = await this.exchange.fetchMyTrades(pair, since, limit);
-                allTrades = allTrades.concat(trades);
-                await new Promise(resolve => setTimeout(resolve, 300));
+              const trades = await this.exchange.fetchMyTrades(pair, effectiveSince, limit);
+              if (trades && trades.length > 0) {
+                console.log(`[Bitget] Found ${trades.length} trades for ${pair}`);
+                // Deduplicate by trade ID
+                const newTrades = trades.filter(t => !allTrades.find(existing => existing.id === t.id));
+                if (newTrades.length > 0) {
+                  allTrades = allTrades.concat(newTrades);
+                }
               }
-            } catch {
-              continue;
+              await new Promise(resolve => setTimeout(resolve, 150));
+            } catch (err) {
+              if (!err.message.includes('does not have market symbol') && !err.message.includes('Invalid symbol')) {
+                console.warn(`[Bitget] Error fetching ${pair}:`, err.message);
+              }
             }
           }
         }
       }
 
-      return this.formatTrades(allTrades);
+      console.log(`[Bitget] Total unique trades fetched: ${allTrades.length}`);
+      const formatted = this.formatTrades(allTrades);
+      console.log(`[Bitget] Formatted ${formatted.length} trades`);
+      return formatted;
     } catch (error) {
       console.error('Bitget fetchTrades error:', error.message);
-      throw new Error(`Failed to fetch Bitget trades: ${error.message}`);
+      console.log('[Bitget] Returning empty trades array due to error');
+      return [];
     }
   }
 
@@ -153,10 +212,12 @@ class BitgetService {
       const [baseAsset, quoteAsset] = trade.symbol.split('/');
       return {
         type: trade.side === 'buy' ? 'buy' : 'sell',
+        asset: baseAsset,
         assetId: baseAsset,
         symbol: baseAsset,
         quoteAsset,
         quantity: trade.amount,
+        qty: trade.amount,
         price: trade.price,
         totalValue: trade.cost,
         fee: trade.fee?.cost || 0,
@@ -176,20 +237,38 @@ class BitgetService {
 
   async fetchDepositsWithdrawalsEnhanced(since = null, limit = 100) {
     try {
+      // Bitget has a 90-day limit for deposit/withdrawal history
+      const now = Date.now();
+      const ninetyDaysAgo = now - (90 * 24 * 60 * 60 * 1000);
+      const effectiveSince = since && since < ninetyDaysAgo ? ninetyDaysAgo : (since || ninetyDaysAgo);
+
+      console.log(`[Bitget] Fetching deposits and withdrawals from ${new Date(effectiveSince).toISOString()} to ${new Date(now).toISOString()}`);
+
       const [deposits, withdrawals] = await Promise.all([
-        this.exchange.fetchDeposits(undefined, since, limit).catch(() => []),
-        this.exchange.fetchWithdrawals(undefined, since, limit).catch(() => [])
+        this.exchange.fetchDeposits(undefined, effectiveSince, limit).catch(err => {
+          console.warn('[Bitget] Failed to fetch deposits:', err.message);
+          return [];
+        }),
+        this.exchange.fetchWithdrawals(undefined, effectiveSince, limit).catch(err => {
+          console.warn('[Bitget] Failed to fetch withdrawals:', err.message);
+          return [];
+        })
       ]);
+
+      console.log(`[Bitget] Fetched ${deposits.length} deposits and ${withdrawals.length} withdrawals`);
 
       const formattedDeposits = deposits.map(d => ({
         type: 'deposit',
         asset: d.currency,
+        assetId: d.currency,
         symbol: d.currency,
         quantity: d.amount,
+        qty: d.amount,
         price: 0,
         fee: d.fee?.cost || 0,
         feeCurrency: d.fee?.currency || d.currency,
         transactionDate: new Date(d.timestamp),
+        tradeId: d.txid,
         txid: d.txid,
         walletAddress: d.address || null,
         addressTag: d.tag || null,
@@ -200,12 +279,15 @@ class BitgetService {
       const formattedWithdrawals = withdrawals.map(w => ({
         type: 'withdraw',
         asset: w.currency,
+        assetId: w.currency,
         symbol: w.currency,
         quantity: w.amount,
+        qty: w.amount,
         price: 0,
         fee: w.fee?.cost || 0,
         feeCurrency: w.fee?.currency || w.currency,
         transactionDate: new Date(w.timestamp),
+        tradeId: w.txid,
         txid: w.txid,
         walletAddress: w.address || null,
         addressTag: w.tag || null,
@@ -213,9 +295,12 @@ class BitgetService {
         status: w.status || 'completed'
       }));
 
-      return [...formattedDeposits, ...formattedWithdrawals].sort(
+      const combined = [...formattedDeposits, ...formattedWithdrawals].sort(
         (a, b) => b.transactionDate - a.transactionDate
       );
+
+      console.log(`[Bitget] Returning ${combined.length} deposits/withdrawals`);
+      return combined;
     } catch (error) {
       console.error('Bitget fetchDepositsWithdrawalsEnhanced error:', error.message);
       return [];
@@ -250,17 +335,33 @@ class BitgetService {
 
   async fetchAllTransactions(since = null) {
     try {
+      console.log(`[Bitget] fetchAllTransactions called with since=${since ? new Date(since).toISOString() : 'null'}`);
+
       const [trades, depositsWithdrawals, conversions] = await Promise.all([
-        this.fetchTrades(null, since).catch(() => []),
-        this.fetchDepositsWithdrawalsEnhanced(since).catch(() => []),
-        this.fetchConversions(since).catch(() => [])
+        this.fetchTrades(null, since).catch(err => {
+          console.error('[Bitget] Error fetching trades:', err.message);
+          return [];
+        }),
+        this.fetchDepositsWithdrawalsEnhanced(since).catch(err => {
+          console.error('[Bitget] Error fetching deposits/withdrawals:', err.message);
+          return [];
+        }),
+        this.fetchConversions(since).catch(err => {
+          console.error('[Bitget] Error fetching conversions:', err.message);
+          return [];
+        })
       ]);
 
-      return [...trades, ...depositsWithdrawals, ...conversions].sort((a, b) => {
+      console.log(`[Bitget] Fetched ${trades.length} trades, ${depositsWithdrawals.length} deposits/withdrawals, ${conversions.length} conversions`);
+
+      const allTransactions = [...trades, ...depositsWithdrawals, ...conversions].sort((a, b) => {
         const dateA = a.transactionDate || a.date;
         const dateB = b.transactionDate || b.date;
         return dateB - dateA;
       });
+
+      console.log(`[Bitget] Returning ${allTransactions.length} total transactions`);
+      return allTransactions;
     } catch (error) {
       console.error('Bitget fetchAllTransactions error:', error.message);
       throw error;

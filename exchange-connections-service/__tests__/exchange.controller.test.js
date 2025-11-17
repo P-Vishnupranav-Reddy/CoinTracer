@@ -395,6 +395,7 @@ describe('Exchange Controller Tests', () => {
       // Mock the service methods that will be called
       Transaction.deleteByConnectionId = jest.fn().mockResolvedValue(true);
       Transaction.bulkInsert = jest.fn().mockResolvedValue(true);
+      Transaction.bulkCreate = jest.fn().mockResolvedValue(true);
       PortfolioService.recalculateHoldings = jest.fn().mockResolvedValue(true);
       ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
 
@@ -407,6 +408,542 @@ describe('Exchange Controller Tests', () => {
         undefined
       );
       expect(mockService.fetchAllTransactions).toHaveBeenCalled();
+    });
+
+    it('should handle sync errors gracefully', async () => {
+      mockReq.params = { connectionId: 'conn-123' };
+
+      const mockConnection = {
+        id: 'conn-123',
+        exchange: 'binance',
+        encrypted_api_key: 'encrypted-key',
+        encrypted_api_secret: 'encrypted-secret'
+      };
+
+      const mockService = {
+        fetchAllTransactions: jest.fn().mockRejectedValue(new Error('Sync failed'))
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
+
+      await ExchangeController.syncExchange(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(ExchangeConnection.updateSyncStatus).toHaveBeenCalledWith(
+        'conn-123',
+        'error',
+        0,
+        'Sync failed'
+      );
+    });
+
+    it('should handle buy/sell trades correctly', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      const mockConnection = {
+        id: 'connection-123',
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret',
+        portfolio_id: 'portfolio-123'
+      };
+
+      const mockTransactions = [
+        {
+          type: 'buy',
+          asset: 'BTC',
+          symbol: 'BTC/USDT',
+          quantity: 1,
+          price: 50000,
+          fee: 50,
+          feeCurrency: 'USDT',
+          orderId: 'order-1',
+          tradeId: 'trade-1',
+          timestamp: Date.now()
+        }
+      ];
+
+      const mockService = {
+        fetchAllTransactions: jest.fn().mockResolvedValue(mockTransactions)
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      Transaction.bulkCreate = jest.fn().mockResolvedValue(true);
+      ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
+      PortfolioService.recalculateHoldings = jest.fn().mockResolvedValue(true);
+
+      await ExchangeController.syncExchange(mockReq, mockRes);
+
+      expect(Transaction.bulkCreate).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          syncJob: expect.objectContaining({
+            status: 'success',
+            transactionsSynced: 1
+          })
+        })
+      );
+    });
+
+    it('should handle deposit transactions correctly', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      const mockConnection = {
+        id: 'connection-123',
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret',
+        portfolio_id: 'portfolio-123'
+      };
+
+      const mockTransactions = [
+        {
+          type: 'deposit',
+          asset: 'BTC',
+          symbol: 'BTC',
+          quantity: 1,
+          fee: 0.0001,
+          feeCurrency: 'BTC',
+          txid: 'tx-123',
+          timestamp: Date.now()
+        }
+      ];
+
+      const mockService = {
+        fetchAllTransactions: jest.fn().mockResolvedValue(mockTransactions)
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      Transaction.bulkCreate = jest.fn().mockResolvedValue(true);
+      ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
+      PortfolioService.recalculateHoldings = jest.fn().mockResolvedValue(true);
+
+      await ExchangeController.syncExchange(mockReq, mockRes);
+
+      expect(Transaction.bulkCreate).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'deposit',
+            assetId: 'BTC',
+            quantity: 1
+          })
+        ])
+      );
+    });
+
+    it('should handle conversion transactions correctly', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      const mockConnection = {
+        id: 'connection-123',
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret',
+        portfolio_id: 'portfolio-123'
+      };
+
+      const mockTransactions = [
+        {
+          type: 'convert',
+          fromAsset: 'BTC',
+          toAsset: 'ETH',
+          fromQuantity: 0.1,
+          toQuantity: 2.5,
+          price: 25,
+          orderId: 'order-1',
+          quoteId: 'quote-1',
+          conversionRate: 25,
+          timestamp: Date.now()
+        }
+      ];
+
+      const mockService = {
+        fetchAllTransactions: jest.fn().mockResolvedValue(mockTransactions)
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      Transaction.bulkCreate = jest.fn().mockResolvedValue(true);
+      ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
+      PortfolioService.recalculateHoldings = jest.fn().mockResolvedValue(true);
+
+      await ExchangeController.syncExchange(mockReq, mockRes);
+
+      expect(Transaction.bulkCreate).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'convert',
+            assetId: 'ETH',
+            quantity: 2.5,
+            quoteAsset: 'BTC',
+            quoteQuantity: 0.1
+          })
+        ])
+      );
+    });
+
+    it('should skip transactions with missing dates', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      const mockConnection = {
+        id: 'connection-123',
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret',
+        portfolio_id: 'portfolio-123'
+      };
+
+      const mockTransactions = [
+        {
+          type: 'buy',
+          asset: 'BTC',
+          quantity: 1,
+          price: 50000
+          // Missing timestamp/date
+        },
+        {
+          type: 'buy',
+          asset: 'ETH',
+          quantity: 10,
+          price: 2500,
+          timestamp: Date.now()
+        }
+      ];
+
+      const mockService = {
+        fetchAllTransactions: jest.fn().mockResolvedValue(mockTransactions)
+      };
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      Transaction.bulkCreate = jest.fn().mockResolvedValue(true);
+      ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
+      PortfolioService.recalculateHoldings = jest.fn().mockResolvedValue(true);
+
+      await ExchangeController.syncExchange(mockReq, mockRes);
+
+      // Should only sync 1 transaction (the one with valid timestamp)
+      expect(Transaction.bulkCreate).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            assetId: 'ETH'
+          })
+        ])
+      );
+      expect(consoleWarnSpy).toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should skip transactions with invalid dates', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      const mockConnection = {
+        id: 'connection-123',
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret',
+        portfolio_id: 'portfolio-123'
+      };
+
+      const mockTransactions = [
+        {
+          type: 'buy',
+          asset: 'BTC',
+          quantity: 1,
+          price: 50000,
+          transactionDate: 'invalid-date'
+        }
+      ];
+
+      const mockService = {
+        fetchAllTransactions: jest.fn().mockResolvedValue(mockTransactions)
+      };
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      Transaction.bulkCreate = jest.fn().mockResolvedValue(true);
+      ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
+      PortfolioService.recalculateHoldings = jest.fn().mockResolvedValue(true);
+
+      await ExchangeController.syncExchange(mockReq, mockRes);
+
+      // Should sync 0 transactions
+      expect(Transaction.bulkCreate).toHaveBeenCalledWith([]);
+      expect(consoleWarnSpy).toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should provide breakdown summary of transaction types', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      const mockConnection = {
+        id: 'connection-123',
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret',
+        portfolio_id: 'portfolio-123'
+      };
+
+      const mockTransactions = [
+        { type: 'buy', asset: 'BTC', quantity: 1, price: 50000, timestamp: Date.now() },
+        { type: 'sell', asset: 'ETH', quantity: 10, price: 2500, timestamp: Date.now() },
+        { type: 'deposit', asset: 'USDT', quantity: 10000, timestamp: Date.now() },
+        { type: 'withdraw', asset: 'BTC', quantity: 0.5, timestamp: Date.now() },
+        { type: 'convert', fromAsset: 'BTC', toAsset: 'ETH', toQuantity: 2, timestamp: Date.now() }
+      ];
+
+      const mockService = {
+        fetchAllTransactions: jest.fn().mockResolvedValue(mockTransactions)
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      Transaction.bulkCreate = jest.fn().mockResolvedValue(true);
+      ExchangeConnection.updateSyncStatus = jest.fn().mockResolvedValue(true);
+      PortfolioService.recalculateHoldings = jest.fn().mockResolvedValue(true);
+
+      await ExchangeController.syncExchange(mockReq, mockRes);
+
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          syncJob: expect.objectContaining({
+            status: 'success',
+            transactionsSynced: 5,
+            breakdown: expect.objectContaining({
+              total: 5,
+              spotTrades: 2,
+              deposits: 1,
+              withdrawals: 1,
+              conversions: 1
+            })
+          })
+        })
+      );
+    });
+  });
+
+  describe('getSyncStatus', () => {
+    it('should return sync status for a connection', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      const mockStatus = {
+        lastSyncAt: new Date(),
+        lastSyncStatus: 'success',
+        transactionCount: 150
+      };
+
+      ExchangeConnection.getSyncStatus = jest.fn().mockResolvedValue(mockStatus);
+
+      await ExchangeController.getSyncStatus(mockReq, mockRes);
+
+      expect(mockRes.json).toHaveBeenCalledWith(mockStatus);
+    });
+
+    it('should handle errors when fetching sync status', async () => {
+      mockReq.params = { connectionId: 'connection-123' };
+
+      ExchangeConnection.getSyncStatus = jest.fn().mockRejectedValue(
+        new Error('Database error')
+      );
+
+      await ExchangeController.getSyncStatus(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Failed to fetch sync status'
+      });
+    });
+  });
+
+  describe('connectExchange - Postgres unique violation', () => {
+    it('should handle Postgres unique constraint violation', async () => {
+      mockReq.body = {
+        exchange: 'binance',
+        apiKey: 'test-api-key',
+        apiSecret: 'test-api-secret',
+        portfolioId: 'portfolio-123'
+      };
+
+      const mockService = {
+        testConnection: jest.fn().mockResolvedValue({ success: true })
+      };
+
+      const postgresError = new Error('duplicate key value');
+      postgresError.code = '23505';
+
+      ExchangeConnection.hashApiKey = jest.fn().mockReturnValue('hashed-key');
+      ExchangeConnection.findByApiKeyHash = jest.fn().mockResolvedValue(null);
+      ExchangeFactory.requiresPassphrase = jest.fn().mockReturnValue(false);
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+      ExchangeConnection.create = jest.fn().mockRejectedValue(postgresError);
+
+      await ExchangeController.connectExchange(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(409);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Duplicate API key',
+        details: 'This API key is already connected.'
+      });
+    });
+  });
+
+  describe('getBalances', () => {
+    it('should fetch and sync balances with holdings', async () => {
+      mockReq.params = { connectionId: 'conn-1' };
+
+      const mockConnection = {
+        id: 'conn-1',
+        portfolio_id: 'port-1',
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret'
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+
+      const mockBalances = [
+        { asset: 'BTC', free: 0.5, locked: 0.1, total: 0.6 },
+        { asset: 'ETH', free: 10, locked: 0, total: 10 }
+      ];
+
+      const mockService = {
+        fetchBalance: jest.fn().mockResolvedValue(mockBalances)
+      };
+
+      ExchangeFactory.createService = jest.fn().mockReturnValue(mockService);
+
+      const Holding = require('../models/holding.model');
+      Holding.findByPortfolioId = jest.fn().mockResolvedValue([]);
+      Holding.findByPortfolioAndAsset = jest.fn().mockResolvedValue(null);
+      Holding.upsert = jest.fn().mockResolvedValue({});
+
+      PortfolioService.fetchLivePrices = jest.fn().mockResolvedValue({
+        BTC: { price: 50000, change24h: 2.5 },
+        ETH: { price: 3000, change24h: -1.2 }
+      });
+
+      await ExchangeController.getBalances(mockReq, mockRes);
+
+      expect(ExchangeConnection.findById).toHaveBeenCalledWith('conn-1');
+      expect(mockService.fetchBalance).toHaveBeenCalled();
+      expect(Holding.upsert).toHaveBeenCalledTimes(2);
+      expect(mockRes.json).toHaveBeenCalled();
+      const response = mockRes.json.mock.calls[0][0];
+      expect(response.balances).toHaveLength(2);
+      expect(response.balances[0].currentPrice).toBeDefined();
+    });
+
+    it('should return 404 if connection not found', async () => {
+      mockReq.params = { connectionId: 'invalid' };
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(null);
+
+      await ExchangeController.getBalances(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Connection not found' });
+    });
+
+    it('should handle errors gracefully', async () => {
+      mockReq.params = { connectionId: 'conn-1' };
+      ExchangeConnection.findById = jest.fn().mockRejectedValue(new Error('DB error'));
+
+      await ExchangeController.getBalances(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: 'Failed to fetch balances'
+      }));
+    });
+  });
+
+  describe('getAveragePrices', () => {
+    it('should fetch average prices for Binance', async () => {
+      mockReq.params = { connectionId: 'conn-1' };
+
+      const mockConnection = {
+        exchange: 'binance',
+        apiKey: 'key',
+        apiSecret: 'secret'
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+
+      const mockPortfolioStats = [
+        { asset: 'BTC', quantity: 0.6, avgPrice: 45000, totalCostBasis: 27000 }
+      ];
+
+      const BinanceService = require('../services/binance.service');
+      BinanceService.prototype.fetchPortfolioWithStats = jest.fn().mockResolvedValue(mockPortfolioStats);
+
+      await ExchangeController.getAveragePrices(mockReq, mockRes);
+
+      expect(mockRes.json).toHaveBeenCalled();
+      const response = mockRes.json.mock.calls[0][0];
+      expect(response.averagePrices).toEqual(mockPortfolioStats);
+      expect(response.count).toBe(1);
+    });
+
+    it('should return 400 for non-Binance exchanges', async () => {
+      mockReq.params = { connectionId: 'conn-1' };
+
+      const mockConnection = { exchange: 'bitget' };
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+
+      await ExchangeController.getAveragePrices(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.stringContaining('only available for Binance')
+      }));
+    });
+  });
+
+  describe('getBreakevenPrices', () => {
+    it('should fetch breakeven prices for Bitget', async () => {
+      mockReq.params = { connectionId: 'conn-1' };
+
+      const mockConnection = {
+        exchange: 'bitget',
+        apiKey: 'key',
+        apiSecret: 'secret',
+        passphrase: 'pass'
+      };
+
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+
+      const mockPortfolioStats = [
+        { asset: 'BTC', quantity: 0.5, breakevenPrice: 48000 }
+      ];
+
+      const BitgetService = require('../services/bitget.service');
+      BitgetService.prototype.fetchPortfolioWithStats = jest.fn().mockResolvedValue(mockPortfolioStats);
+
+      await ExchangeController.getBreakevenPrices(mockReq, mockRes);
+
+      expect(mockRes.json).toHaveBeenCalled();
+      const response = mockRes.json.mock.calls[0][0];
+      expect(response.breakevenPrices).toEqual(mockPortfolioStats);
+    });
+
+    it('should return 400 for non-Bitget exchanges', async () => {
+      mockReq.params = { connectionId: 'conn-1' };
+
+      const mockConnection = { exchange: 'binance' };
+      ExchangeConnection.findById = jest.fn().mockResolvedValue(mockConnection);
+
+      await ExchangeController.getBreakevenPrices(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
     });
   });
 });
