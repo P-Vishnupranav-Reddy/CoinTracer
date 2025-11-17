@@ -154,6 +154,7 @@ export default function Dashboard() {
         holdings.push({
           source: 'exchange',
           asset: b.asset,
+          assetName: b.assetName || b.asset,
           quantity: b.total,
           averageCost: b.averageCost,
           currentPrice: b.currentPrice,
@@ -181,6 +182,7 @@ export default function Dashboard() {
           holdings.push({
             source: 'manual',
             asset: m.asset_symbol,
+            assetName: m.asset_name || m.asset_symbol,
             quantity: m.quantity,
             averageCost: m.average_cost,
             currentPrice: m.current_price || null,
@@ -192,6 +194,29 @@ export default function Dashboard() {
     
     return holdings;
   }, [balances, manualHoldings]);
+
+  // Share combined holdings with global search (and other components) via localStorage + event
+  useEffect(() => {
+    try {
+      const assets = combinedHoldings
+        .map(h => ({
+          symbol: (h.asset || '').toUpperCase(),
+          name: h.assetName || h.asset || '',
+          source: h.source || 'unknown'
+        }))
+        .filter(asset => asset.symbol);
+
+      const payload = {
+        updatedAt: Date.now(),
+        assets
+      };
+
+      localStorage.setItem('dashboardAssets', JSON.stringify(payload));
+      window.dispatchEvent(new CustomEvent('dashboardAssetsUpdated', { detail: assets }));
+    } catch (err) {
+      console.warn('Failed to sync dashboard assets for global search', err);
+    }
+  }, [combinedHoldings]);
 
   // Calculate summary from combined holdings
   const summary = useMemo(() => {

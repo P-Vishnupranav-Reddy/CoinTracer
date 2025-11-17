@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { apiGetFavorites as getFavorites, apiRemoveFavorite as removeFavorite } from '../services/api_devB';
+import { apiGetFavorites as getFavorites, apiRemoveFavorite as removeFavorite, apiGetMarketPrices as getMarketPrices } from '../services/api_devB';
 import '../DevB_Features.css'; // Import your styles
 
 export function FavoritesPage() {
     const [favorites, setFavorites] = useState([]);
+    const [vs, setVs] = useState('USD');
     const [filter, setFilter] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
@@ -15,16 +16,62 @@ export function FavoritesPage() {
     const loadFavorites = () => {
         setLoading(true);
         getFavorites()
-            .then(data => setFavorites(data.favorites || []))
+            .then(data => {
+                const favs = data.favorites || [];
+                setFavorites(favs);
+                setVs(data.vs || 'USD');
+                refreshMarketPrices(favs);
+            })
             .catch(err => setError(err.message))
             .finally(() => setLoading(false));
+    };
+
+    const refreshMarketPrices = (favoritesList) => {
+        const symbols = [...new Set(favoritesList.map(f => f.assetId).filter(Boolean))];
+        if (symbols.length === 0) {
+            return;
+        }
+        getMarketPrices(symbols)
+            .then(data => {
+                const snapshots = {};
+                (data.data || []).forEach(entry => {
+                    const symbol = (entry.symbol || entry.assetId || '').toUpperCase();
+                    snapshots[symbol] = {
+                        price: entry.price ?? null,
+                        change24h: entry.change24h ?? entry.percentChange24h ?? 0,
+                        name: entry.name || symbol,
+                        vs: (data.vs || entry.vs || 'USD').toUpperCase()
+                    };
+                });
+                setFavorites(prev =>
+                    prev.map(f => {
+                        const symbol = (f.assetId || '').toUpperCase();
+                        const snapshot = snapshots[symbol];
+                        if (!snapshot) return f;
+                        return {
+                            ...f,
+                            name: snapshot.name || f.name,
+                            price: snapshot.price,
+                            priceChange24h: snapshot.change24h,
+                            vs: snapshot.vs || f.vs || vs
+                        };
+                    })
+                );
+            })
+            .catch(err => {
+                console.error('Failed to load market prices for favorites', err);
+            });
     };
 
     const handleRemove = (assetId) => {
         removeFavorite(assetId)
             .then(() => {
                 // Refresh the list after removing
-                setFavorites(prev => prev.filter(f => f.assetId !== assetId));
+                setFavorites(prev => {
+                    const updated = prev.filter(f => f.assetId !== assetId);
+                    refreshMarketPrices(updated);
+                    return updated;
+                });
             })
             .catch(err => setError(err.message));
     };
@@ -69,9 +116,9 @@ export function FavoritesPage() {
                             <span className="card-asset-name">{fav.name}</span>
                         </div>
                         <div className="card-price">
-                            ${Number(fav.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            <span className={fav.priceChange24h >= 0 ? 'price-up' : 'price-down'}>
-                                {fav.priceChange24h.toFixed(2)}%
+                            {`$${formatPrice(fav.price)}`}
+                            <span className={(Number(fav.priceChange24h) || 0) >= 0 ? 'price-up' : 'price-down'}>
+                                {formatChange(fav.priceChange24h)}%
                             </span>
                         </div>
                         <button className="btn-danger" onClick={() => handleRemove(fav.assetId)}>Remove</button>
@@ -81,3 +128,15 @@ export function FavoritesPage() {
         </div>
     );
 }
+
+const formatPrice = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0.00';
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatChange = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0.00';
+    return num.toFixed(2);
+};

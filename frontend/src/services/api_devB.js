@@ -7,7 +7,7 @@ const API_URLS = {
     
     // This is Developer A's Market Data service (for search)
     // Assuming it runs on the same port as his user-service
-    MARKET_DATA: 'http://localhost:3001/api/v1' 
+    MARKET_DATA: 'http://localhost:5001/api/v1' 
 };
 
 /**
@@ -100,3 +100,11 @@ export const apiSearchAssets = (query) => {
     return fetchWithAuth(`${API_URLS.MARKET_DATA}/market/assets/search?query=${query}`);
 };
 
+export const apiGetMarketPrices = (symbols = []) => {
+    const unique = [...new Set(symbols.filter(Boolean).map((s) => s.toUpperCase()))];
+    if (unique.length === 0) {
+        return Promise.resolve({ data: [] });
+    }
+    const params = encodeURIComponent(unique.join(','));
+    return fetchWithAuth(`${API_URLS.MARKET_DATA}/market/prices/batch?assets=${params}`);
+};
