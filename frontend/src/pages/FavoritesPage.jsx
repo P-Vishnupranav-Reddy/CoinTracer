@@ -9,11 +9,10 @@ export function FavoritesPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadFavorites();
-    }, []);
-
-    const loadFavorites = () => {
+  useEffect(() => {
+    loadFavorites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);    const loadFavorites = () => {
         setLoading(true);
         getFavorites()
             .then(data => {

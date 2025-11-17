@@ -55,22 +55,24 @@ export function Transactions() {
     load();
   }, [portfolioId]);
 
-  useEffect(() => {
-    const loadTx = async () => {
-      if (!portfolioId) return;
-      try {
-        if (filterType === 'all') {
-          const res = await exchangeApi.getTransactions(portfolioId, { limit: 1000, offset: 0 });
-          setTransactions(res.data.transactions || []);
-        } else {
-          const res = await exchangeApi.getTransactionsByType(portfolioId, filterType);
-          setTransactions(res.data.transactions || res.data.conversions || res.data.spotTrades || []);
-        }
-      } catch {
-        setError('Failed to load transactions');
+  const loadTransactions = async () => {
+    if (!portfolioId) return;
+    try {
+      if (filterType === 'all') {
+        const res = await exchangeApi.getTransactions(portfolioId, { limit: 1000, offset: 0 });
+        setTransactions(res.data.transactions || []);
+      } else {
+        const res = await exchangeApi.getTransactionsByType(portfolioId, filterType);
+        setTransactions(res.data.transactions || res.data.conversions || res.data.spotTrades || []);
       }
-    };
-    loadTx();
+    } catch {
+      setError('Failed to load transactions');
+    }
+  };
+
+  useEffect(() => {
+    loadTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [portfolioId, filterType]);
 
   // addTx and delTx intentionally removed while feature is parked

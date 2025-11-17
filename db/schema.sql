@@ -4,7 +4,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Core tables -------------------------------------------------
-DROP TABLE IF EXISTS sync_logs, transactions, exchange_connections, holdings, manual_holdings, portfolios, users CASCADE,alerts;
+DROP TABLE IF EXISTS sync_logs, transactions, exchange_connections, holdings, manual_holdings, portfolios, users CASCADE, alerts;
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

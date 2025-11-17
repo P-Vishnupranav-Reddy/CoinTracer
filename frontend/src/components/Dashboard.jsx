@@ -921,7 +921,6 @@ export default function Dashboard() {
                     {combinedHoldings.map((h, idx) => {
                       const currentPrice = h.currentPrice;
                       const avgCost = h.averageCost;
-                      const change24h = h.change24h || 0;
                       
                       // Calculate P&L percentage if we have both prices
                       let pnlPercent = null;

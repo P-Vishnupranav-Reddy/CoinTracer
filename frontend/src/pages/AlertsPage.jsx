@@ -26,6 +26,7 @@ export function AlertsPage() {
   useEffect(() => {
     loadAlerts();
     loadPortfolioAssets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   const loadAlerts = async () => {

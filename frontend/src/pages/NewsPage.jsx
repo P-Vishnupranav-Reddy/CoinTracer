@@ -15,6 +15,7 @@ export function NewsPage() {
   useEffect(() => {
     loadNews();
     loadSources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit, selectedSource, selectedCategory]);
 
   const loadNews = async () => {
