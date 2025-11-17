@@ -262,13 +262,6 @@ export default function Dashboard() {
                 holding?.price ??
                 0
             );
-            const investedRaw =
-              holding?.total_invested != null
-                ? Number(holding.total_invested)
-                : null;
-            const avgCost = Number(
-              holding?.average_cost ?? holding?.averageCost ?? 0
-            );
             const change24h = Number(
               holding?.change24h ?? holding?.change_24h ?? 0
             );
