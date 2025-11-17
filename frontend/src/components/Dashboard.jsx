@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { exchangeApi } from '../services/api_exchange';
 import { manualHoldingAPI } from '../services/api_manual';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, Label } from 'recharts';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, Label, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { formatNumber } from '../utils/number';
 
 const normalizeSymbol = (value) => String(value || '').trim().toUpperCase();
@@ -150,6 +150,12 @@ export default function Dashboard() {
   const [connections, setConnections] = useState([]);
   const [balances, setBalances] = useState(null); // live balances for selected portfolio
   const [balancesLoading, setBalancesLoading] = useState(false);
+  const [exchangeBreakdown, setExchangeBreakdown] = useState({
+    loading: false,
+    data: [],
+    countData: [],
+    error: ''
+  });
   const [manualHoldings, setManualHoldings] = useState([]); // manual holdings
   const [addingManual, setAddingManual] = useState(false); // modal state
   const [manualForm, setManualForm] = useState({ assetSymbol: '', quantity: '', averageCost: '', notes: '' });
@@ -359,25 +365,121 @@ export default function Dashboard() {
     })();
   }, [selectedId]);
 
-  // Load live balances if there is a connection for this portfolio
+  // Load live balances for all connected exchanges in the selected portfolio
   useEffect(() => {
-    if (!selectedId) return;
-    const conn = (connections || []).find(c => c.portfolio_id === selectedId);
-    if (!conn) {
+    let cancelled = false;
+    if (!selectedId) {
       setBalances(null);
-      return;
+      setExchangeBreakdown({ loading: false, data: [], countData: [], error: '' });
+      return () => {
+        cancelled = true;
+      };
     }
+
+    const relevantConnections = (connections || []).filter((c) => c.portfolio_id === selectedId);
+    if (!relevantConnections.length) {
+      setBalances(null);
+      setExchangeBreakdown({
+        loading: false,
+        data: [],
+        countData: [],
+        error: 'Connect an exchange to see live distribution.'
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     (async () => {
       try {
         setBalancesLoading(true);
-        const bRes = await exchangeApi.getExchangeBalances(conn.id);
-        setBalances(bRes?.data?.balances || []);
-      } catch {
+        setExchangeBreakdown((prev) => ({ ...prev, loading: true, error: '' }));
+        const responses = await Promise.all(
+          relevantConnections.map(async (conn) => {
+            try {
+              const res = await exchangeApi.getExchangeBalances(conn.id);
+              return {
+                connectionId: conn.id,
+                exchange: res?.data?.exchange || conn.exchange || conn.name || 'Unknown',
+                balances: res?.data?.balances || []
+              };
+            } catch (err) {
+              console.warn('Exchange balance fetch failed', conn.id, err);
+              return { connectionId: conn.id, exchange: conn.exchange || 'Unknown', balances: [], error: true };
+            }
+          })
+        );
+        if (cancelled) return;
+
+        const successful = responses.filter((r) => !r.error && Array.isArray(r.balances));
+        const flattenedBalances = successful.flatMap((entry) =>
+          entry.balances.map((balance) => ({ ...balance, exchange: entry.exchange }))
+        );
+        setBalances(flattenedBalances);
+
+        const breakdownEntries = successful
+          .map((entry) => {
+            const totalValue = entry.balances.reduce((sum, b) => {
+              const qty = Number(b.total ?? b.quantity ?? b.free ?? 0) || 0;
+              const price = Number(b.currentPrice ?? b.current_price ?? 0) || 0;
+              const fallbackValue = price > 0 ? qty * price : qty;
+              return sum + fallbackValue;
+            }, 0);
+            return totalValue > 0
+              ? { exchange: entry.exchange, value: totalValue }
+              : null;
+          })
+          .filter(Boolean);
+
+        const countEntries = successful
+          .map((entry) => {
+            const assetCount = entry.balances.filter((b) => {
+              const qty = Number(b.total ?? b.quantity ?? b.free ?? 0) || 0;
+              return qty > 0;
+            }).length;
+            return assetCount > 0 ? { exchange: entry.exchange, count: assetCount } : null;
+          })
+          .filter(Boolean);
+
+        const totalValue = breakdownEntries.reduce((sum, item) => sum + item.value, 0);
+        const data = breakdownEntries
+          .map((item) => ({
+            ...item,
+            pct: totalValue > 0 ? (item.value / totalValue) * 100 : 0
+          }))
+          .sort((a, b) => b.value - a.value);
+
+        const countData = countEntries.sort((a, b) => b.count - a.count);
+
+        setExchangeBreakdown({
+          loading: false,
+          data,
+          countData,
+          error:
+            data.length || countData.length
+              ? ''
+              : 'Unable to compute exchange mix from live balances.'
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load exchange balances', err);
         setBalances(null);
+        setExchangeBreakdown({
+          loading: false,
+          data: [],
+          countData: [],
+          error: 'Failed to load exchange distribution.'
+        });
       } finally {
-        setBalancesLoading(false);
+        if (!cancelled) {
+          setBalancesLoading(false);
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedId, connections]);
 
   // Merge manual holdings with exchange balances (fetch current prices for manual holdings)
@@ -747,7 +849,25 @@ export default function Dashboard() {
               <div style={{ fontWeight: 600 }}>Portfolio Allocation {balances?.length ? '(Live by Qty)' : ''}</div>
             </div>
             {/* Donut chart using live data (balances if present, else allocation percentages) */}
-            <AllocationDonut balances={balances} allocation={allocation} />
+            <AllocationDonut 
+              balances={balances} 
+              allocation={allocation} 
+              combinedHoldings={combinedHoldings}
+            />
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontWeight: 600 }}>Exchange Distribution</div>
+                {exchangeBreakdown.loading && <div className="helper" style={{ fontSize: 12 }}>Loading…</div>}
+              </div>
+              <ExchangeBreakdownChart breakdown={exchangeBreakdown} />
+            </div>
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontWeight: 600 }}>Assets per Exchange</div>
+                {exchangeBreakdown.loading && <div className="helper" style={{ fontSize: 12 }}>Loading…</div>}
+              </div>
+              <ExchangeAssetCountChart breakdown={exchangeBreakdown} />
+            </div>
           </div>
 
           <div className="card">
@@ -975,54 +1095,118 @@ export default function Dashboard() {
 // Sparkline feature archived for later sprint
 
 // Internal component: Donut chart for allocation
-function AllocationDonut({ balances, allocation }) {
-  // Palette prioritizing Blue, Teal, Orange; "Others" has a softer orange
-  const TOP_COLORS = ['#1d4ed8', '#10b981', '#f59e0b'];
+function AllocationDonut({ balances, allocation, combinedHoldings }) {
+  const CHART_HEIGHT = 320;
+  const CHART_MARGIN = { top: 24, right: 28, bottom: 24, left: 28 };
+  const TOP_COLORS = ['#1d4ed8', '#0ea5e9', '#10b981', '#14b8a6', '#f97316', '#facc15'];
   const OTHERS_COLOR = '#fb923c';
 
-  const data = useMemo(() => {
-    const OTHERS_LABEL = 'Others';
-
-    // Helper to convert an array of {name, value} to top 3 + others by percentage
-    const top3PlusOthers = (entries) => {
-      const total = entries.reduce((s, e) => s + Number(e.value || 0), 0);
-      if (!total) return [];
-      const withPct = entries
-        .filter(e => Number(e.value) > 0)
-        .map(e => ({ ...e, pct: (Number(e.value) / total) * 100 }));
-
-      // Sort by percentage desc
-      withPct.sort((a, b) => b.pct - a.pct);
-      const top = withPct.slice(0, 3);
-      const rest = withPct.slice(3);
-      const othersTotal = rest.reduce((s, e) => s + Number(e.value), 0);
-      const base = [...top];
-      if (othersTotal > 0) base.push({ name: OTHERS_LABEL, value: othersTotal, pct: (othersTotal / total) * 100 });
-      return base;
+  const chartSource = useMemo(() => {
+    const condense = (entries, mode) => {
+      const total = entries.reduce((sum, entry) => sum + Number(entry.value || 0), 0);
+      if (!total) return null;
+      const sorted = entries
+        .filter(entry => Number(entry.value) > 0)
+        .sort((a, b) => Number(b.value) - Number(a.value));
+      const top = sorted.slice(0, 6);
+      const others = sorted.slice(6);
+      const othersTotal = others.reduce((sum, entry) => sum + Number(entry.value || 0), 0);
+      const data = [...top];
+      if (othersTotal > 0) {
+        data.push({ name: 'Others', value: othersTotal });
+      }
+      return {
+        data: data.map(item => ({
+          ...item,
+          pct: total > 0 ? (Number(item.value) / total) * 100 : 0
+        })),
+        total,
+        mode
+      };
     };
 
-    if (Array.isArray(balances) && balances.length) {
-      const entries = balances.map(b => ({ name: b.asset, value: Number(b.total || 0) }));
-      return top3PlusOthers(entries);
+    const fromCombined = () => {
+      const entries = (combinedHoldings || [])
+        .map((holding) => {
+          const qty = Number(holding.quantity) || 0;
+          const price = Number(holding.currentPrice) || 0;
+          if (!qty || !price) return null;
+          return { name: holding.asset || holding.assetName, value: qty * price };
+        })
+        .filter(Boolean);
+      if (!entries.length) return null;
+      const condensed = condense(entries, 'value');
+      if (!condensed) return null;
+      return {
+        ...condensed,
+        helper: 'Using live value (exchange + manual holdings)'
+      };
+    };
+
+    const fromBalances = () => {
+      if (!Array.isArray(balances) || !balances.length) return null;
+      const entries = balances
+        .map((balance) => ({
+          name: balance.asset,
+          value: Number(balance.total || balance.quantity || 0)
+        }))
+        .filter(entry => entry.name && Number(entry.value) > 0);
+      if (!entries.length) return null;
+      const condensed = condense(entries, 'quantity');
+      if (!condensed) return null;
+      return {
+        ...condensed,
+        helper: 'Using exchange balance quantities'
+      };
+    };
+
+    const fromAllocation = () => {
+      const alloc = allocation?.allocation || [];
+      if (!alloc.length) return null;
+      const entries = alloc
+        .map((item) => ({
+          name: item.symbol,
+          value: Number(item.percentage || 0)
+        }))
+        .filter(entry => entry.name && Number(entry.value) > 0);
+      if (!entries.length) return null;
+      const condensed = condense(entries, 'percentage');
+      if (!condensed) return null;
+      return {
+        ...condensed,
+        helper: 'Using backend allocation snapshot'
+      };
+    };
+
+    return fromCombined() || fromBalances() || fromAllocation() || { data: [], total: 0, helper: 'Allocation data unavailable' };
+  }, [balances, allocation, combinedHoldings]);
+
+  const formatValue = (value) => {
+    if (!chartSource) return value;
+    switch (chartSource.mode) {
+      case 'value':
+        return `$ ${formatNumber(value, { maximumFractionDigits: 2 })}`;
+      case 'percentage':
+        return `${formatNumber(value, { maximumFractionDigits: 2 })}%`;
+      default:
+        return formatNumber(value, { maximumFractionDigits: 6 });
     }
-    const alloc = allocation?.allocation || [];
-    const entries = alloc.map(a => ({ name: a.symbol, value: Number(a.percentage || 0) }));
-    return top3PlusOthers(entries);
-  }, [balances, allocation]);
+  };
+
+  const data = chartSource?.data || [];
 
   // Custom label/leader line to avoid overlap and show nicer callouts
   const RADIAN = Math.PI / 180;
   const renderLabel = (props) => {
     const { cx, cy, midAngle, outerRadius, percent, name, index } = props;
-    const radius = outerRadius + 42; // push labels further out
+    const radius = outerRadius + 34; // closer labels to reduce clutter
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const yBase = cy + radius * Math.sin(-midAngle * RADIAN);
     const rightSide = x >= cx;
-    // stronger stagger to reduce overlaps
-    const stagger = 10;
+    const stagger = 8;
     const y = yBase + (rightSide ? index * stagger : -index * stagger);
     const textAnchor = rightSide ? 'start' : 'end';
-    const label = `${name} (${(percent * 100).toFixed(0)}%)`;
+    const label = `${name} ${(percent * 100).toFixed(0)}%`;
     return (
       <text x={x} y={y} fill="#cbd5e1" fontSize={12} textAnchor={textAnchor} dominantBaseline="central">
         {label}
@@ -1032,16 +1216,16 @@ function AllocationDonut({ balances, allocation }) {
 
   const renderLabelLine = (props) => {
     const { cx, cy, midAngle, outerRadius, index } = props;
-    const r1 = outerRadius + 10; // start just outside the arc
-    const r2 = outerRadius + 34; // elbow point further out
+    const r1 = outerRadius + 8; // start just outside the arc
+    const r2 = outerRadius + 24; // elbow point further out
     const x1 = cx + r1 * Math.cos(-midAngle * RADIAN);
     const y1 = cy + r1 * Math.sin(-midAngle * RADIAN);
     const x2 = cx + r2 * Math.cos(-midAngle * RADIAN);
     const y2Base = cy + r2 * Math.sin(-midAngle * RADIAN);
     const rightSide = x2 >= cx;
-    const stagger = 10;
+    const stagger = 8;
     const y2 = y2Base + (rightSide ? index * stagger : -index * stagger);
-    const x3 = x2 + (rightSide ? 26 : -26); // longer horizontal tail
+    const x3 = x2 + (rightSide ? 22 : -22); // shorter tail
     const y3 = y2;
     const path = `M${x1},${y1} L${x2},${y2} L${x3},${y3}`;
     return (
@@ -1052,20 +1236,49 @@ function AllocationDonut({ balances, allocation }) {
     );
   };
 
+  const renderCenterLabel = ({ viewBox }) => {
+    if (!viewBox) return null;
+    const { cx, cy } = viewBox;
+    const totalDisplay =
+      chartSource?.mode === 'value'
+        ? `$ ${formatNumber(chartSource.total || 0, { maximumFractionDigits: 0 })}`
+        : chartSource?.mode === 'percentage'
+        ? '100%'
+        : formatNumber(chartSource?.total || 0, { maximumFractionDigits: 0 });
+    const subLabel =
+      chartSource?.mode === 'value'
+        ? 'Portfolio Value'
+        : chartSource?.mode === 'percentage'
+        ? 'Allocation'
+        : 'Total Quantity';
+
+    return (
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fill="#e2e8f0">
+        <tspan x={cx} dy="-0.2em" fontSize={16} fontWeight={600}>
+          {chartSource?.total ? totalDisplay : 'Allocation'}
+        </tspan>
+        <tspan x={cx} dy="1.4em" fontSize={12} fill="#94a3b8">
+          {chartSource?.total ? subLabel : ''}
+        </tspan>
+      </text>
+    );
+  };
+
   if (!data.length) return (
-    <div className="helper" style={{ marginBottom: 8 }}>No allocation data yet.</div>
+    <div className="helper" style={{ marginBottom: 8 }}>{chartSource?.helper || 'No allocation data yet.'}</div>
   );
 
   return (
-    <div style={{ width: '100%', height: 300, marginBottom: 8 }}>
-      <ResponsiveContainer>
-        <PieChart>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ width: '100%', height: CHART_HEIGHT }}>
+        <ResponsiveContainer>
+          <PieChart margin={CHART_MARGIN}>
           <Pie
             data={data}
             dataKey="value"
             nameKey="name"
-            innerRadius={70}
-            outerRadius={115}
+              innerRadius={78}
+              outerRadius={110}
             paddingAngle={1}
             labelLine={renderLabelLine}
             label={renderLabel}
@@ -1074,15 +1287,172 @@ function AllocationDonut({ balances, allocation }) {
               const fill = entry.name === 'Others' ? OTHERS_COLOR : TOP_COLORS[index % TOP_COLORS.length];
               return <Cell key={`cell-${index}`} fill={fill} />;
             })}
-            <Label position="center" style={{ fill: '#9ca3af', fontSize: 12 }}>Allocation</Label>
+            <Label position="center" content={renderCenterLabel} />
           </Pie>
           <Tooltip formatter={(value, name, props) => {
             const pct = props?.payload?.pct ? props.payload.pct.toFixed(2) + '%' : '';
-            return [value, `${name} ${pct}`];
+            return [formatValue(value), `${name}${pct ? ` (${pct})` : ''}`];
           }} />
+          <Legend
+            iconType="circle"
+            layout="horizontal"
+            verticalAlign="bottom"
+            align="center"
+            wrapperStyle={{ paddingTop: 4 }}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+      </div>
+      {chartSource?.helper && (
+        <div className="helper" style={{ textAlign: 'center' }}>{chartSource.helper}</div>
+      )}
+    </div>
+  );
+}
+
+function ExchangeBreakdownChart({ breakdown }) {
+  const { data = [], loading, error } = breakdown || {};
+  const COLORS = ['#38bdf8', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#fb7185'];
+  const chartData = data.map((item, index) => ({
+    ...item,
+    fill: COLORS[index % COLORS.length]
+  }));
+
+  if (loading && !chartData.length) {
+    return <div className="helper">Loading exchange balances…</div>;
+  }
+
+  if ((!chartData.length && error) || (!chartData.length && !loading)) {
+    return (
+      <div className="helper">
+        {error || 'No exchange distribution data yet.'}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: '100%', height: 260 }}>
+      <ResponsiveContainer>
+        <PieChart margin={{ top: 16, right: 28, bottom: 12, left: 28 }}>
+          <Pie
+            data={chartData}
+            dataKey="value"
+            nameKey="exchange"
+            innerRadius={58}
+            outerRadius={92}
+            paddingAngle={1}
+            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+          >
+            {chartData.map((entry, index) => (
+              <Cell key={`exchange-cell-${index}`} fill={entry.fill} />
+            ))}
+            <Label
+              position="center"
+              content={({ viewBox }) => {
+                if (!viewBox) return null;
+                const { cx, cy } = viewBox;
+                return (
+                  <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fill="#e2e8f0">
+                    <tspan x={cx} dy="-0.2em" fontSize={15} fontWeight={600}>
+                      {chartData.length} Exch
+                    </tspan>
+                    <tspan x={cx} dy="1.3em" fontSize={12} fill="#94a3b8">
+                      Live Mix
+                    </tspan>
+                  </text>
+                );
+              }}
+            />
+          </Pie>
+          <Tooltip
+            formatter={(value, name, props) => {
+              const pct = props?.payload?.pct ? props.payload.pct.toFixed(2) + '%' : '';
+              return [`$ ${formatNumber(value, { maximumFractionDigits: 2 })}`, `${name}${pct ? ` (${pct})` : ''}`];
+            }}
+          />
           <Legend verticalAlign="bottom" height={24} />
         </PieChart>
       </ResponsiveContainer>
+      <div className="helper" style={{ textAlign: 'center', marginTop: 4 }}>
+        Based on live balances across connected exchanges.
+      </div>
+    </div>
+  );
+}
+
+function ExchangeAssetCountChart({ breakdown }) {
+  const { countData = [], loading, error } = breakdown || {};
+
+  if (loading && !countData.length) {
+    return <div className="helper">Loading asset counts…</div>;
+  }
+
+  if ((!countData.length && error) || (!countData.length && !loading)) {
+    return (
+      <div className="helper">
+        {error || 'No asset count data yet.'}
+      </div>
+    );
+  }
+
+  const chartHeight = Math.max(140, countData.length * 38);
+
+  return (
+    <div style={{ width: '100%', height: chartHeight, marginTop: 12 }}>
+      <ResponsiveContainer>
+        <BarChart
+          data={countData}
+          layout="vertical"
+          margin={{ top: 8, right: 16, left: 32, bottom: 8 }}
+        >
+          <XAxis type="number" allowDecimals={false} hide />
+          <YAxis
+            dataKey="exchange"
+            type="category"
+            width={90}
+            tick={{ fill: '#e2e8f0', fontSize: 12 }}
+          />
+          <Tooltip
+            formatter={(value) => [`${value} asset${value === 1 ? '' : 's'}`, 'Assets']}
+            contentStyle={{
+              backgroundColor: 'rgba(15, 23, 42, 0.95)',
+              border: '1px solid rgba(148, 163, 184, 0.4)',
+              borderRadius: 10,
+              color: '#e2e8f0',
+              boxShadow: '0 10px 25px rgba(2, 6, 23, 0.55)',
+              padding: '8px 12px'
+            }}
+            wrapperStyle={{ zIndex: 30 }}
+            labelStyle={{ color: '#cbd5f5', marginBottom: 4 }}
+            itemStyle={{ color: '#e2e8f0', fontWeight: 500 }}
+          />
+          <Bar
+            dataKey="count"
+            radius={[4, 4, 4, 4]}
+            fill="url(#exchangeCountGradient)"
+            label={({ value, x, y, height, width }) => (
+              <text
+                x={x + width + 6}
+                y={y + height / 2}
+                fill="#cbd5f5"
+                fontSize={12}
+                dominantBaseline="middle"
+              >
+                {value}
+              </text>
+            )}
+          />
+          <defs>
+            <linearGradient id="exchangeCountGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#818cf8" />
+              <stop offset="100%" stopColor="#22d3ee" />
+            </linearGradient>
+          </defs>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="helper" style={{ textAlign: 'center', marginTop: 4 }}>
+        Counts deduplicated per exchange based on live balances.
+      </div>
     </div>
   );
 }
