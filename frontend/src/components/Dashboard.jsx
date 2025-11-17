@@ -6,6 +6,132 @@ import { manualHoldingAPI } from '../services/api_manual';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, Label } from 'recharts';
 import { formatNumber } from '../utils/number';
 
+const normalizeSymbol = (value) => String(value || '').trim().toUpperCase();
+
+function buildCombinedHoldings({
+  balances = [],
+  manualHoldings = [],
+  fallbackHoldings = [],
+  useFallbackWhenEmpty = false
+} = {}) {
+  const holdingsMap = new Map();
+
+  const ensureEntry = (symbol, defaults = {}) => {
+    if (!holdingsMap.has(symbol)) {
+      holdingsMap.set(symbol, {
+        asset: symbol,
+        assetName: defaults.assetName || symbol,
+        source: defaults.source || 'exchange',
+        quantity: 0,
+        averageCost: defaults.averageCost ?? null,
+        currentPrice: defaults.currentPrice ?? null,
+        change24h: defaults.change24h ?? 0
+      });
+    }
+    return holdingsMap.get(symbol);
+  };
+
+  (balances || []).forEach((balance) => {
+    const symbol = normalizeSymbol(balance?.asset || balance?.symbol);
+    if (!symbol) return;
+
+    const entry = ensureEntry(symbol, {
+      assetName: balance?.assetName || symbol,
+      source: 'exchange'
+    });
+
+    entry.quantity += Number(balance?.total ?? balance?.quantity ?? 0) || 0;
+
+    if (balance?.averageCost != null && Number(balance.averageCost) > 0) {
+      entry.averageCost = Number(balance.averageCost);
+    }
+
+    if (balance?.currentPrice != null && Number(balance.currentPrice) > 0) {
+      entry.currentPrice = Number(balance.currentPrice);
+    }
+
+    if (balance?.change24h != null) {
+      entry.change24h = Number(balance.change24h);
+    }
+  });
+
+  (manualHoldings || []).forEach((holding) => {
+    const symbol = normalizeSymbol(holding?.asset_symbol || holding?.asset);
+    if (!symbol) return;
+
+    const entry =
+      holdingsMap.get(symbol) ||
+      ensureEntry(symbol, {
+        assetName: holding?.asset_name || symbol,
+        source: 'manual'
+      });
+
+    const qty = Number(holding?.quantity) || 0;
+    const existingQty = entry.quantity || 0;
+    const totalQty = existingQty + qty;
+    const existingCost = entry.averageCost || 0;
+    const manualCostRaw = holding?.average_cost ?? holding?.averageCost;
+    const manualCost = manualCostRaw != null ? Number(manualCostRaw) : null;
+
+    let weightedAvgCost = entry.averageCost;
+    if (manualCost != null && manualCost > 0) {
+      const investedExisting = existingQty * existingCost;
+      const investedManual = qty * manualCost;
+      weightedAvgCost =
+        totalQty > 0 ? (investedExisting + investedManual) / totalQty : existingCost;
+    }
+
+    entry.quantity = totalQty;
+    if (weightedAvgCost && weightedAvgCost > 0) {
+      entry.averageCost = weightedAvgCost;
+    }
+
+    if (entry.source === 'exchange') {
+      entry.source = 'both';
+    }
+
+    if (!entry.currentPrice && holding?.current_price != null) {
+      entry.currentPrice = Number(holding.current_price);
+    }
+  });
+
+  let combined = Array.from(holdingsMap.values()).filter((h) => (h.quantity || 0) > 0);
+
+  if (useFallbackWhenEmpty && combined.length === 0 && (fallbackHoldings || []).length > 0) {
+    combined = fallbackHoldings
+      .map((holding) => {
+        const symbol = normalizeSymbol(
+          holding?.asset || holding?.asset_symbol || holding?.symbol || holding?.asset_id
+        );
+        if (!symbol) return null;
+        const quantity = Number(
+          holding?.total_quantity ?? holding?.quantity ?? holding?.total ?? 0
+        );
+        if (!quantity) return null;
+
+        const avgCostRaw = holding?.average_cost ?? holding?.averageCost ?? null;
+        const valueRaw = holding?.currentValue ?? holding?.current_value ?? null;
+        const priceRaw =
+          holding?.currentPrice ??
+          holding?.current_price ??
+          (valueRaw != null && quantity > 0 ? Number(valueRaw) / quantity : null);
+
+        return {
+          source: 'portfolio',
+          asset: symbol,
+          assetName: symbol,
+          quantity,
+          averageCost: avgCostRaw != null ? Number(avgCostRaw) : null,
+          currentPrice: priceRaw != null ? Number(priceRaw) : null,
+          change24h: Number(holding?.change24h ?? holding?.change_24h ?? 0)
+        };
+      })
+      .filter(Boolean);
+  }
+
+  return combined;
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   
@@ -22,11 +148,16 @@ export default function Dashboard() {
   const [portfolio, setPortfolio] = useState(null); // { portfolio, holdings, summary }
   const [allocation, setAllocation] = useState(null); // { allocation: [{symbol,value,percentage}], totalValue }
   const [connections, setConnections] = useState([]);
-  const [balances, setBalances] = useState(null); // live balances
+  const [balances, setBalances] = useState(null); // live balances for selected portfolio
   const [balancesLoading, setBalancesLoading] = useState(false);
   const [manualHoldings, setManualHoldings] = useState([]); // manual holdings
   const [addingManual, setAddingManual] = useState(false); // modal state
   const [manualForm, setManualForm] = useState({ assetSymbol: '', quantity: '', averageCost: '', notes: '' });
+
+  // Aggregated summary across *all* portfolios
+  const [globalSummary, setGlobalSummary] = useState(null);
+  const [globalSummaryLoading, setGlobalSummaryLoading] = useState(false);
+  const [globalSummaryError, setGlobalSummaryError] = useState('');
 
   // Prevent body scroll when modal is open and support Escape to close
   useEffect(() => {
@@ -66,6 +197,118 @@ export default function Dashboard() {
       }
     })();
   }, []);
+
+  // Load aggregated summary across all portfolios by reusing backend portfolio summaries
+  useEffect(() => {
+    const loadGlobalSummary = async () => {
+      if (!portfolios || portfolios.length === 0) {
+        setGlobalSummary(null);
+        setGlobalSummaryError('');
+        setGlobalSummaryLoading(false);
+        return;
+      }
+
+      setGlobalSummaryLoading(true);
+      setGlobalSummaryError('');
+
+      try {
+        const portfolioResponses = await Promise.all(
+          portfolios.map(async (p) => {
+            try {
+              const res = await exchangeApi.getPortfolio(p.id);
+              return res?.data || null;
+            } catch (err) {
+              console.warn('Failed to fetch portfolio for aggregation', p.id, err);
+              return null;
+            }
+          })
+        );
+
+        const validPortfolios = portfolioResponses.filter(Boolean);
+        if (!validPortfolios.length) {
+          setGlobalSummary(null);
+          return;
+        }
+
+        let totalValue = 0;
+        let totalInvested = 0;
+        let totalPnL = 0;
+        let total24hPnL = 0;
+        let assetCount = 0;
+
+        validPortfolios.forEach((data) => {
+          const summary = data?.summary || {};
+          totalValue += Number(summary.totalValue) || 0;
+          totalInvested += Number(summary.totalInvested) || 0;
+          totalPnL += Number(summary.totalPnL) || 0;
+          assetCount +=
+            Number(summary.assetCount) ||
+            Number(data?.holdings?.length || 0);
+
+          const holdings = data?.holdings || [];
+
+          holdings.forEach((holding) => {
+            const qty = Number(
+              holding?.total_quantity ??
+                holding?.quantity ??
+                holding?.total ??
+                0
+            );
+            if (!qty) return;
+
+            const currentPrice = Number(
+              holding?.current_price ??
+                holding?.currentPrice ??
+                holding?.price ??
+                0
+            );
+            const investedRaw =
+              holding?.total_invested != null
+                ? Number(holding.total_invested)
+                : null;
+            const avgCost = Number(
+              holding?.average_cost ?? holding?.averageCost ?? 0
+            );
+            const change24h = Number(
+              holding?.change24h ?? holding?.change_24h ?? 0
+            );
+
+            if (currentPrice > 0 && change24h !== 0) {
+              total24hPnL += qty * currentPrice * (change24h / 100);
+            }
+          });
+        });
+
+        const totalPnLPercentage =
+          totalInvested > 0
+            ? ((totalPnL / totalInvested) * 100).toFixed(2)
+            : '0.00';
+        const total24hPnLPercentage =
+          totalValue - total24hPnL > 0
+            ? ((total24hPnL / (totalValue - total24hPnL)) * 100).toFixed(2)
+            : '0.00';
+
+        setGlobalSummary({
+          totalValue: totalValue.toFixed(2),
+          totalInvested: totalInvested.toFixed(2),
+          totalPnL: totalPnL.toFixed(2),
+          totalPnLPercentage,
+          total24hPnL: total24hPnL.toFixed(2),
+          total24hPnLPercentage,
+          portfolioCount: portfolios.length,
+          assetCount
+        });
+      } catch (e) {
+        console.error('Failed to load aggregated portfolio summary', e);
+        setGlobalSummary(null);
+        setGlobalSummaryError('Failed to load aggregated portfolio summary.');
+      } finally {
+        setGlobalSummaryLoading(false);
+      }
+    };
+
+    if (!loading) loadGlobalSummary();
+  }, [loading, portfolios]);
 
   // Load portfolio data + allocation when selection changes
   useEffect(() => {
@@ -145,55 +388,10 @@ export default function Dashboard() {
   }, [selectedId, connections]);
 
   // Merge manual holdings with exchange balances (fetch current prices for manual holdings)
-  const combinedHoldings = useMemo(() => {
-    const holdings = [];
-    
-    // Add exchange balances
-    if (balances && balances.length > 0) {
-      balances.forEach(b => {
-        holdings.push({
-          source: 'exchange',
-          asset: b.asset,
-          assetName: b.assetName || b.asset,
-          quantity: b.total,
-          averageCost: b.averageCost,
-          currentPrice: b.currentPrice,
-          change24h: b.change24h || 0
-        });
-      });
-    }
-    
-    // Add manual holdings (need to fetch current prices)
-    if (manualHoldings && manualHoldings.length > 0) {
-      manualHoldings.forEach(m => {
-        // Check if asset already exists from exchange
-        const existing = holdings.find(h => h.asset === m.asset_symbol);
-        if (existing) {
-          // Merge quantities, recalculate weighted average cost
-          const totalQty = existing.quantity + m.quantity;
-          const existingCost = existing.averageCost || 0;
-          const manualCost = m.average_cost || 0;
-          const weightedAvgCost = (existing.quantity * existingCost + m.quantity * manualCost) / totalQty;
-          existing.quantity = totalQty;
-          existing.averageCost = weightedAvgCost > 0 ? weightedAvgCost : null;
-          existing.source = 'both';
-          // Keep the change24h from exchange data
-        } else {
-          holdings.push({
-            source: 'manual',
-            asset: m.asset_symbol,
-            assetName: m.asset_name || m.asset_symbol,
-            quantity: m.quantity,
-            averageCost: m.average_cost,
-            currentPrice: m.current_price || null,
-            change24h: 0 // Manual holdings don't have 24h change data
-          });
-        }
-      });
-    }
-    
-    return holdings;
-  }, [balances, manualHoldings]);
+  const combinedHoldings = useMemo(
+    () => buildCombinedHoldings({ balances, manualHoldings }),
+    [balances, manualHoldings]
+  );
 
   // Share combined holdings with global search (and other components) via localStorage + event
   useEffect(() => {
@@ -417,6 +615,86 @@ export default function Dashboard() {
       <div style={{ width: 'min(1400px, 95vw)', margin: '0 auto' }}>
       {error && <div className="toast error" style={{ marginBottom: 10 }}>{error}</div>}
       {success && <div className="toast" style={{ marginBottom: 10 }}>{success}</div>}
+
+      {/* Aggregated Portfolio Summary (All Portfolios) */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Aggregated Portfolio Overview</h3>
+            <div className="helper">
+              Quick view across all your portfolios
+              {globalSummary?.portfolioCount ? ` (${globalSummary.portfolioCount} total)` : ''}
+            </div>
+          </div>
+          {globalSummaryLoading && (
+            <div className="helper" style={{ fontSize: 13 }}>Calculating…</div>
+          )}
+        </div>
+        {globalSummaryError && (
+          <div className="toast error" style={{ marginBottom: 8 }}>{globalSummaryError}</div>
+        )}
+        {globalSummary ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+            <div className="card" style={{ background: 'rgba(15,23,42,0.7)' }}>
+              <div className="helper">Total Value (All Portfolios)</div>
+              <div style={{ fontSize: 26, fontWeight: 700 }}>
+                $ {Number(globalSummary.totalValue || 0).toFixed(2)}
+              </div>
+              <div className="helper">
+                {globalSummary.assetCount || 0} aggregated asset position(s)
+              </div>
+            </div>
+            <div className="card" style={{ background: 'rgba(15,23,42,0.7)' }}>
+              <div className="helper">Overall Unrealized P&L</div>
+              <div
+                style={{
+                  fontSize: 26,
+                  fontWeight: 700,
+                  color: Number(globalSummary.totalPnL || 0) >= 0 ? '#4ade80' : '#f87171',
+                }}
+              >
+                {Number(globalSummary.totalPnL || 0) >= 0 ? '+' : ''}$ {Number(globalSummary.totalPnL || 0).toFixed(2)}
+              </div>
+              <div
+                className="helper"
+                style={{
+                  color: Number(globalSummary.totalPnL || 0) >= 0 ? '#4ade80' : '#f87171',
+                }}
+              >
+                {Number(globalSummary.totalPnLPercentage || 0) >= 0 ? '+' : ''}
+                {Number(globalSummary.totalPnLPercentage || 0).toFixed(2)}%
+              </div>
+            </div>
+            <div className="card" style={{ background: 'rgba(15,23,42,0.7)' }}>
+              <div className="helper">24h Change (All Portfolios)</div>
+              <div
+                style={{
+                  fontSize: 26,
+                  fontWeight: 700,
+                  color: Number(globalSummary.total24hPnL || 0) >= 0 ? '#4ade80' : '#f87171',
+                }}
+              >
+                {Number(globalSummary.total24hPnL || 0) >= 0 ? '+' : ''}$ {Number(globalSummary.total24hPnL || 0).toFixed(2)}
+              </div>
+              <div
+                className="helper"
+                style={{
+                  color: Number(globalSummary.total24hPnL || 0) >= 0 ? '#4ade80' : '#f87171',
+                }}
+              >
+                {Number(globalSummary.total24hPnL || 0) >= 0 ? '+' : ''}
+                {Number(globalSummary.total24hPnLPercentage || 0).toFixed(2)}%
+              </div>
+            </div>
+          </div>
+        ) : (
+          !globalSummaryLoading && (
+            <div className="helper">
+              No aggregated data yet. Create a portfolio or add holdings to see your overall performance.
+            </div>
+          )
+        )}
+      </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
