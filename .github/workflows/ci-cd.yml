@@ -839,30 +839,109 @@ jobs:
           EOF
 
       - name: Start all backend services
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGDATABASE: dacpt
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-key-for-e2e
+          COINMARKETCAP_API_KEY: test-api-key
+          BINANCE_API_KEY: test-api-key
+          BINANCE_API_SECRET: test-api-secret
         run: |
           echo "Starting backend services in background..."
-          cd user-service && npm start &
-          cd exchange-connections-service && npm start &
-          cd market-data-service && npm start &
-          cd personalization-service && npm start &
-          cd alerts-service && npm start &
+          
+          # Start user-service
+          cd user-service
+          PORT=3001 npm start > ../logs-user.txt 2>&1 &
+          echo $! > ../pid-user.txt
+          cd ..
+          
+          # Start exchange-connections-service
+          cd exchange-connections-service
+          PORT=3002 npm start > ../logs-exchange.txt 2>&1 &
+          echo $! > ../pid-exchange.txt
+          cd ..
+          
+          # Start market-data-service
+          cd market-data-service
+          PORT=3003 npm start > ../logs-market.txt 2>&1 &
+          echo $! > ../pid-market.txt
+          cd ..
+          
+          # Start personalization-service
+          cd personalization-service
+          PORT=3004 npm start > ../logs-personal.txt 2>&1 &
+          echo $! > ../pid-personal.txt
+          cd ..
+          
+          # Start alerts-service
+          cd alerts-service
+          PORT=3005 npm start > ../logs-alerts.txt 2>&1 &
+          echo $! > ../pid-alerts.txt
+          cd ..
+          
+          sleep 5
+          echo "Services started, waiting for initialization..."
           
       - name: Wait for services to be ready
         run: |
           echo "Waiting for services to be ready..."
+          
+          # Function to check a single service
+          check_service() {
+            local port=$1
+            local name=$2
+            if curl -sf http://localhost:$port/health >/dev/null 2>&1; then
+              echo "[OK] $name (port $port) is healthy"
+              return 0
+            else
+              echo "[WAIT] $name (port $port) not ready yet"
+              return 1
+            fi
+          }
+          
+          # Wait loop
           for i in {1..30}; do
-            if curl -s http://localhost:3001/health && \
-               curl -s http://localhost:3002/health && \
-               curl -s http://localhost:3003/health && \
-               curl -s http://localhost:3004/health && \
-               curl -s http://localhost:3005/health; then
-              echo "All services are ready!"
+            echo ""
+            echo "Health check attempt $i/30:"
+            
+            user_ok=false
+            exchange_ok=false
+            market_ok=false
+            personal_ok=false
+            alerts_ok=false
+            
+            check_service 3001 "User Service" && user_ok=true
+            check_service 3002 "Exchange Connections" && exchange_ok=true
+            check_service 3003 "Market Data" && market_ok=true
+            check_service 3004 "Personalization" && personal_ok=true
+            check_service 3005 "Alerts" && alerts_ok=true
+            
+            if [ "$user_ok" = true ] && [ "$exchange_ok" = true ] && [ "$market_ok" = true ] && [ "$personal_ok" = true ] && [ "$alerts_ok" = true ]; then
+              echo ""
+              echo "SUCCESS: All services are healthy!"
               exit 0
             fi
-            echo "Waiting for services ($i/30)..."
+            
             sleep 2
           done
-          echo "Services did not become ready in time"
+          
+          echo ""
+          echo "ERROR: Services did not become ready in time"
+          echo "Checking service logs..."
+          echo "=== User Service Log ==="
+          tail -20 logs-user.txt || echo "No log found"
+          echo "=== Exchange Service Log ==="
+          tail -20 logs-exchange.txt || echo "No log found"
+          echo "=== Market Service Log ==="
+          tail -20 logs-market.txt || echo "No log found"
+          echo "=== Personalization Service Log ==="
+          tail -20 logs-personal.txt || echo "No log found"
+          echo "=== Alerts Service Log ==="
+          tail -20 logs-alerts.txt || echo "No log found"
           exit 1
 
       - name: Build frontend
