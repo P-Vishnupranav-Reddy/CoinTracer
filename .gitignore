@@ -41,6 +41,10 @@ coverage/
 jest-cache/
 jest-transform-cache/
 
+# CI/CD reports (generated artifacts)
+reports/
+**/reports/
+
 # Next.js / React
 .next/
 out/

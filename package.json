@@ -18,6 +18,7 @@
     "test": "npm run test --workspaces",
     "test:all": "node scripts/run-all-tests.js",
     "test:coverage": "npm run test:coverage --workspaces",
+    "reports": "node scripts/generate-local-reports.js",
     "lint": "node scripts/lint-all-services.js",
     "lint:fix": "node scripts/lint-all-services.js --fix",
     "lint:score": "node scripts/lint-all-services.js --score",

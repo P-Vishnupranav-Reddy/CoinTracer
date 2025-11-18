@@ -184,7 +184,6 @@ export function Transactions() {
 
         {portfolios.length === 0 && (
           <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
             <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No Exchange Portfolios Found</div>
             <div className="helper">Transaction history is only available for portfolios connected to exchanges.</div>
             <div className="helper" style={{ marginTop: 8 }}>Connect an exchange from the Dashboard to view transactions.</div>

@@ -256,6 +256,231 @@ describe('News Service', () => {
 
       expect(result.length).toBe(10);
     });
+
+    it('should match ETH and Ethereum', async () => {
+      mockCmcClient.get.mockResolvedValue({
+        data: {
+          data: [
+            {
+              id: 1,
+              title: 'Ethereum Update Released',
+              url: 'https://example.com/1',
+              published_on: 1704110400,
+              text: 'Ethereum has released an update',
+              tags: ['ethereum']
+            }
+          ]
+        }
+      });
+
+      axios.get.mockResolvedValue({ data: "<rss><channel></channel></rss>" });
+
+      const result = await newsService.getNewsForAsset('ETH', 20);
+
+      expect(result.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should return empty array for unknown asset', async () => {
+      mockCmcClient.get.mockResolvedValue({
+        data: {
+          data: [
+            {
+              id: 1,
+              title: 'Bitcoin News',
+              url: 'https://example.com/1',
+              published_on: 1704110400,
+              text: 'BTC news'
+            }
+          ]
+        }
+      });
+
+      axios.get.mockResolvedValue({ data: "<rss><channel></channel></rss>" });
+
+      const result = await newsService.getNewsForAsset('UNKNOWNTOKEN', 20);
+
+      expect(result.length).toBe(0);
+    });
+  });
+
+  describe('Edge Cases and Error Handling', () => {
+
+    it('should handle malformed RSS XML', async () => {
+      axios.get.mockResolvedValue({ data: "Invalid XML <not closed>" });
+
+      const result = await newsService.fetchRSSNews(10);
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBe(0);
+    });
+
+    it('should handle empty RSS feed', async () => {
+      axios.get.mockResolvedValue({ 
+        data: "<rss><channel></channel></rss>" 
+      });
+
+      const result = await newsService.fetchRSSNews(10);
+
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should handle RSS items without required fields', async () => {
+      const mockRSSXML = `<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>No Link Item</title>
+            <pubDate>Mon, 01 Jan 2024 12:00:00 GMT</pubDate>
+          </item>
+          <item>
+            <link>https://example.com/no-title</link>
+            <pubDate>Mon, 01 Jan 2024 12:00:00 GMT</pubDate>
+          </item>
+        </channel></rss>`;
+
+      axios.get.mockResolvedValue({ data: mockRSSXML });
+
+      const result = await newsService.fetchRSSNews(10);
+
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should handle CMC API returning null data', async () => {
+      mockCmcClient.get.mockResolvedValue({ data: null });
+
+      const result = await newsService.fetchCMCNews(50);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should handle CMC API returning empty array', async () => {
+      mockCmcClient.get.mockResolvedValue({ 
+        data: { data: [] } 
+      });
+
+      const result = await newsService.fetchCMCNews(50);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should filter by category', async () => {
+      mockCmcClient.get.mockResolvedValue({
+        data: {
+          data: [
+            {
+              id: 1,
+              title: 'Bitcoin General News',
+              url: 'https://example.com/1',
+              published_on: 1704110400,
+              category: 'general'
+            },
+            {
+              id: 2,
+              title: 'Bitcoin DeFi News',
+              url: 'https://example.com/2',
+              published_on: 1704110401,
+              category: 'defi'
+            }
+          ]
+        }
+      });
+
+      axios.get.mockResolvedValue({ data: "<rss><channel></channel></rss>" });
+
+      const result = await newsService.getAggregatedNews({ 
+        limit: 50, 
+        category: 'defi' 
+      });
+
+      const defiArticles = result.filter(a => a.category === 'defi');
+      expect(defiArticles.length).toBeGreaterThan(0);
+    });
+
+    it('should filter by source', async () => {
+      mockCmcClient.get.mockResolvedValue({
+        data: {
+          data: [
+            {
+              id: 1,
+              title: 'CMC Article',
+              url: 'https://example.com/1',
+              published_on: 1704110400,
+              source: 'CoinMarketCap'
+            }
+          ]
+        }
+      });
+
+      axios.get.mockResolvedValue({ 
+        data: `<rss><channel>
+          <item>
+            <title>CoinDesk Article</title>
+            <link>https://coindesk.com/1</link>
+            <pubDate>Mon, 01 Jan 2024 12:00:00 GMT</pubDate>
+          </item>
+        </channel></rss>` 
+      });
+
+      const result = await newsService.getAggregatedNews({ 
+        limit: 50, 
+        source: 'CoinDesk' 
+      });
+
+      const coindeskArticles = result.filter(a => 
+        a.source && a.source.toLowerCase().includes('coindesk')
+      );
+      expect(coindeskArticles.length).toBeGreaterThan(0);
+    });
+
+    it('should handle invalid pubDate formats', async () => {
+      const mockRSSXML = `<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>Test Article</title>
+            <link>https://example.com/1</link>
+            <pubDate>Invalid Date Format</pubDate>
+            <description>Test</description>
+          </item>
+        </channel></rss>`;
+
+      axios.get.mockResolvedValue({ data: mockRSSXML });
+
+      const result = await newsService.fetchRSSNews(10);
+
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should sort news by date descending', async () => {
+      mockCmcClient.get.mockResolvedValue({
+        data: {
+          data: [
+            {
+              id: 1,
+              title: 'Older News',
+              url: 'https://example.com/1',
+              published_on: 1704000000,
+              text: 'Old'
+            },
+            {
+              id: 2,
+              title: 'Newer News',
+              url: 'https://example.com/2',
+              published_on: 1704200000,
+              text: 'New'
+            }
+          ]
+        }
+      });
+
+      axios.get.mockResolvedValue({ data: "<rss><channel></channel></rss>" });
+
+      const result = await newsService.getAggregatedNews({ limit: 50 });
+
+      if (result.length >= 2) {
+        const firstDate = new Date(result[0].pubDate).getTime();
+        const secondDate = new Date(result[1].pubDate).getTime();
+        expect(firstDate).toBeGreaterThanOrEqual(secondDate);
+      }
+    });
   });
 
 });

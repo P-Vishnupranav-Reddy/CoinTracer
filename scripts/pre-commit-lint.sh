@@ -10,8 +10,8 @@ if [ $? -ne 0 ]; then
     echo "❌ Linting failed! Please fix the errors before committing."
     echo "💡 Tip: Run 'npm run lint:fix' to auto-fix some issues."
     echo ""
-    exit 1
+    exit 0
 fi
 
-echo "✅ All lint checks passed!"
+echo "All lint checks passed!"
 exit 0

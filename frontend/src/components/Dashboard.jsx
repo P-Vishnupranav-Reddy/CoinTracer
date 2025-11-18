@@ -204,107 +204,6 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // Load aggregated summary by calculating each portfolio's local summary and summing them
-  useEffect(() => {
-    const loadGlobalSummary = async () => {
-      if (!portfolios || portfolios.length === 0) {
-        setGlobalSummary(null);
-        setGlobalSummaryError('');
-        setGlobalSummaryLoading(false);
-        return;
-      }
-
-      setGlobalSummaryLoading(true);
-      setGlobalSummaryError('');
-
-      try {
-        let aggregatedTotalValue = 0;
-        let aggregatedTotal24hPnL = 0;
-        let aggregatedAssetCount = 0;
-
-        // Process each portfolio sequentially to calculate its local summary
-        for (const p of portfolios) {
-          try {
-            // Fetch portfolio data
-            const res = await exchangeApi.getPortfolio(p.id);
-            const portfolioData = res?.data;
-            if (!portfolioData) continue;
-
-            const holdings = portfolioData?.holdings || [];
-
-            // Fetch manual holdings
-            let manualHoldingsData = [];
-            try {
-              const manualRes = await manualHoldingAPI.getHoldings(p.id);
-              manualHoldingsData = manualRes?.data?.holdings || [];
-            } catch {
-              // Manual holdings might not exist
-            }
-
-            // Transform holdings to match buildCombinedHoldings expected format
-            const transformedHoldings = holdings.map(h => ({
-              asset: h.asset_symbol || h.symbol,
-              symbol: h.asset_symbol || h.symbol,
-              total: h.total_quantity,
-              quantity: h.total_quantity,
-              currentPrice: h.current_price || h.currentPrice,
-              averageCost: h.average_cost || h.averageCost,
-              change24h: h.change24h || h.change_24h || 0
-            }));
-
-            // Build combined holdings using the same function as individual portfolio view
-            const combined = buildCombinedHoldings({
-              balances: transformedHoldings,
-              manualHoldings: manualHoldingsData
-            });
-
-            // Calculate this portfolio's summary (same logic as the summary useMemo)
-            let portfolioTotalValue = 0;
-            let portfolioTotal24hPnL = 0;
-
-            combined.forEach(h => {
-              const qty = Number(h.quantity) || 0;
-              const price = Number(h.currentPrice) || 0;
-              const change24h = Number(h.change24h) || 0;
-
-              portfolioTotalValue += qty * price;
-              portfolioTotal24hPnL += qty * price * (change24h / 100);
-            });
-
-            // Add this portfolio's totals to the aggregated totals
-            aggregatedTotalValue += portfolioTotalValue;
-            aggregatedTotal24hPnL += portfolioTotal24hPnL;
-            aggregatedAssetCount += combined.length;
-
-          } catch (err) {
-            console.warn(`Failed to calculate portfolio ${p.name}:`, err);
-          }
-        }
-
-        const total24hPnLPercentage =
-          aggregatedTotalValue - aggregatedTotal24hPnL > 0
-            ? ((aggregatedTotal24hPnL / (aggregatedTotalValue - aggregatedTotal24hPnL)) * 100).toFixed(2)
-            : '0.00';
-
-        setGlobalSummary({
-          totalValue: aggregatedTotalValue.toFixed(2),
-          total24hPnL: aggregatedTotal24hPnL.toFixed(2),
-          total24hPnLPercentage,
-          portfolioCount: portfolios.length,
-          assetCount: aggregatedAssetCount
-        });
-      } catch (e) {
-        console.error('Failed to load aggregated portfolio summary', e);
-        setGlobalSummary(null);
-        setGlobalSummaryError('Failed to load aggregated portfolio summary.');
-      } finally {
-        setGlobalSummaryLoading(false);
-      }
-    };
-
-    if (!loading) loadGlobalSummary();
-  }, [loading, portfolios]);
-
   // Load portfolio data + allocation when selection changes
   useEffect(() => {
     if (!selectedId) {
@@ -483,6 +382,103 @@ export default function Dashboard() {
     () => buildCombinedHoldings({ balances, manualHoldings }),
     [balances, manualHoldings]
   );
+
+  // Calculate aggregated summary across ALL portfolios by fetching live data for each
+  useEffect(() => {
+    const loadGlobalSummary = async () => {
+      if (!portfolios || portfolios.length === 0) {
+        setGlobalSummary(null);
+        setGlobalSummaryError('');
+        setGlobalSummaryLoading(false);
+        return;
+      }
+
+      setGlobalSummaryLoading(true);
+      setGlobalSummaryError('');
+
+      try {
+        let aggregatedTotalValue = 0;
+        let aggregatedTotal24hPnL = 0;
+        const uniqueAssets = new Set();
+
+        // Process each portfolio to get its live balances + manual holdings
+        for (const p of portfolios) {
+          try {
+            // Get connections for this portfolio
+            const portfolioConnections = connections.filter(c => c.portfolio_id === p.id);
+
+            // Fetch live balances from all exchanges for this portfolio
+            let portfolioBalances = [];
+            if (portfolioConnections.length > 0) {
+              const balanceResponses = await Promise.all(
+                portfolioConnections.map(async (conn) => {
+                  try {
+                    const res = await exchangeApi.getExchangeBalances(conn.id);
+                    return res?.data?.balances || [];
+                  } catch {
+                    return [];
+                  }
+                })
+              );
+              portfolioBalances = balanceResponses.flat();
+            }
+
+            // Fetch manual holdings for this portfolio
+            let portfolioManualHoldings = [];
+            try {
+              const manualRes = await manualHoldingAPI.getHoldings(p.id);
+              portfolioManualHoldings = manualRes?.data?.holdings || [];
+            } catch {
+              // Manual holdings might not exist
+            }
+
+            // Build combined holdings for this portfolio
+            const portfolioCombined = buildCombinedHoldings({
+              balances: portfolioBalances,
+              manualHoldings: portfolioManualHoldings
+            });
+
+            // Calculate this portfolio's totals
+            portfolioCombined.forEach(h => {
+              const qty = Number(h.quantity) || 0;
+              const price = Number(h.currentPrice) || 0;
+              const change24h = Number(h.change24h) || 0;
+
+              aggregatedTotalValue += qty * price;
+              aggregatedTotal24hPnL += qty * price * (change24h / 100);
+              uniqueAssets.add(h.asset);
+            });
+
+          } catch (err) {
+            console.warn(`Failed to calculate portfolio ${p.name}:`, err);
+          }
+        }
+
+        // Calculate 24h P&L percentage
+        const value24hAgo = aggregatedTotalValue - aggregatedTotal24hPnL;
+        const total24hPnLPercentage = value24hAgo > 0
+          ? ((aggregatedTotal24hPnL / value24hAgo) * 100).toFixed(2)
+          : '0.00';
+
+        setGlobalSummary({
+          totalValue: aggregatedTotalValue.toFixed(2),
+          total24hPnL: aggregatedTotal24hPnL.toFixed(2),
+          total24hPnLPercentage,
+          portfolioCount: portfolios.length,
+          assetCount: uniqueAssets.size
+        });
+        setGlobalSummaryError('');
+      } catch (e) {
+        console.error('Failed to calculate aggregated portfolio summary', e);
+        setGlobalSummary(null);
+        setGlobalSummaryError('Failed to calculate aggregated portfolio summary.');
+      } finally {
+        setGlobalSummaryLoading(false);
+      }
+    };
+
+    if (!loading) loadGlobalSummary();
+  }, [portfolios, connections, loading]);
 
   // Share combined holdings with global search (and other components) via localStorage + event
   useEffect(() => {
@@ -762,9 +758,6 @@ export default function Dashboard() {
               <div style={{ fontSize: 26, fontWeight: 700 }}>
                 $ {Number(globalSummary.totalValue || 0).toFixed(2)}
               </div>
-              <div className="helper">
-                {globalSummary.assetCount || 0} aggregated asset position(s)
-              </div>
             </div>
             <div className="card" style={{ background: 'rgba(15,23,42,0.7)' }}>
               <div className="helper">24h Change (All Portfolios)</div>
@@ -829,7 +822,6 @@ export default function Dashboard() {
           <div className="card">
             <div className="helper">Total Value</div>
             <div style={{ fontSize: 28, fontWeight: 700 }}>$ {Number(summary.totalValue||0).toFixed(2)}</div>
-            <div className="helper">{portfolio.holdings?.length||0} asset(s)</div>
           </div>
           <div className="card">
             <div className="helper">24h P&L</div>
@@ -899,7 +891,7 @@ export default function Dashboard() {
                   onClick={exportHoldingsToCSV}
                   disabled={combinedHoldings.length === 0}
                 >
-                  📊 Export CSV
+                  Export CSV
                 </button>
               </div>
             </div>
