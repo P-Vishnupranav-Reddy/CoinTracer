@@ -64,3 +64,5 @@ out/
 *.pem
 *.key
 *.crt
+
+api.txt
